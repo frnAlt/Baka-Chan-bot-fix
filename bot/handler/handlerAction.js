@@ -12,14 +12,8 @@ function safeCall(fn, label) {
         }
 }
 
-const fs = require("fs-extra");
-const path = require("path");
-
 module.exports = (api, threadModel, userModel, dashBoardModel, globalModel, usersData, threadsData, dashBoardData, globalData) => {
-        const handlerEventsPath = fs.existsSync(path.join(__dirname, "./handlerEvents.dev.js")) && process.env.NODE_ENV === 'development'
-                ? "./handlerEvents.dev.js"
-                : "./handlerEvents.js";
-        const handlerEvents = require(handlerEventsPath)(api, threadModel, userModel, dashBoardModel, globalModel, usersData, threadsData, dashBoardData, globalData);
+        const handlerEvents = require(process.env.NODE_ENV == 'development' ? "./handlerEvents.dev.js" : "./handlerEvents.js")(api, threadModel, userModel, dashBoardModel, globalModel, usersData, threadsData, dashBoardData, globalData);
 
         return async function (event) {
                 try {
@@ -49,18 +43,6 @@ module.exports = (api, threadModel, userModel, dashBoardModel, globalModel, user
                                 case "message":
                                 case "message_reply":
                                 case "message_unsend":
-                                        if (event.body || event.attachments?.length > 0) {
-                                                if (!global.chatLogs) global.chatLogs = [];
-                                                global.chatLogs.unshift({
-                                                        id: event.messageID || Date.now(),
-                                                        senderID: event.senderID,
-                                                        threadID: event.threadID,
-                                                        body: event.body || (event.attachments?.length ? `[Attachment: ${event.attachments[0].type}]` : "[Message]"),
-                                                        type: event.type,
-                                                        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-                                                });
-                                                if (global.chatLogs.length > 200) global.chatLogs.pop();
-                                        }
                                         safeCall(onFirstChat, 'onFirstChat');
                                         safeCall(onChat, 'onChat');
                                         safeCall(onStart, 'onStart');

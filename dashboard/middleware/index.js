@@ -1,6 +1,4 @@
-function getThreadsData() {
-	return global.db?.threadsData || null;
-}
+const { threadsData } = global.db;
 
 function isPostMethod(req) {
 	return req.method == "POST";
@@ -69,8 +67,7 @@ module.exports = function (checkAuthConfigDashboardOfThread) {
 		async checkHasAndInThread(req, res, next) {
 			const userID = req.user.facebookUserID;
 			const threadID = isPostMethod(req) ? req.body.threadID : req.params.threadID;
-			const tData = getThreadsData();
-			const threadData = tData ? await tData.get(threadID) : null;
+			const threadData = await threadsData.get(threadID);
 
 			if (!threadData) {
 				if (isPostMethod(req))

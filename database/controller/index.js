@@ -2,7 +2,7 @@ const { graphQlQueryToJson } = require("graphql-query-to-json");
 const ora = require("ora");
 const { log, getText } = global.utils;
 const { config } = global.GoatBot;
-let databaseType = config.database.type;
+const databaseType = config.database.type;
 
 // with add null if not found data
 function fakeGraphql(query, data, obj = {}) {
@@ -225,8 +225,8 @@ module.exports = async function (api) {
 			catch (err) {
 				process.stderr.clearLine = defaultClearLine;
 				spin.stop();
-				log.warn("SQLITE", "Missing native C++ sqlite3 bindings. Automatically falling back to portable JSON Database engine.");
-				databaseType = "json";
+				log.err("SQLITE", getText("indexController", "connectMySQLError"), err);
+				process.exit();
 			}
 			break;
 		}

@@ -1,91 +1,36 @@
-# 🌸 STEP-BY-STEP INSTALLATION GUIDE FOR BAKA-CHAN BOT V2 🌸
+## **STEP INSTALL GOAT BOT V2**
+> This is a guide to install Goat Bot V2 on mobile devices (Android, iOS) and PC (Windows, MacOS, Linux) with replit.com
 
-This guide walks you through setting up and running **Baka-Chan Bot V2** on PC, VPS, Docker, or Cloud Hosting (Replit, Render, Railway, Koyeb).
+* Watch the detailed video tutorial to install Goat Bot V2 on mobile devices (Android, iOS) 
+<div align="center">
+        <a href="https://www.youtube.com/watch?v=grVeZ76HlgA"><img src="https://img.youtube.com/vi/grVeZ76HlgA/maxresdefault.jpg" width="400"></a>
+</div>
+
+* If you want to install Goat Bot V2 on vps/computer, please follow the guide below:
+<div align="center">
+        <a href="https://www.youtube.com/watch?v=uCbSYNQNEwY"><img src="https://img.youtube.com/vi/uCbSYNQNEwY/maxresdefault.jpg" width="400"></a>
+</div>
 
 ---
+<h1 align="center"><b>STEP BY STEP GUIDE</b></h1>
 
-## 💻 1. Local / VPS Setup (Recommended)
-
-### Step 1: Install Node.js
-Make sure you have Node.js 18.x or 20.x installed:
-- [Download Node.js](https://nodejs.org/)
-
-### Step 2: Clone the Repository
-```bash
-git clone https://github.com/frnAlt/Baka-Chan-bot.git
-cd Baka-Chan-bot
+* Download kiwi browser from play store. Open kiwi browser and go to https://replit.com
 ```
-
-### Step 3: Install Dependencies
+https://replit.com
+```
+* Create a new team education, then create a new project with `bash` language, then open console and type:
+```bash
+git clone https://github.com/ntkhang03/Goat-Bot-V2 && cp -r Goat-Bot-V2/. . && rm -rf Goat-Bot-V2
+```
+* Then type:
 ```bash
 npm install
 ```
-
-### Step 4: Extract Facebook Cookie / AppState
-1. Install the `C3C-FBState` or `Cookie-Editor` extension in your Chromium browser.
-2. Log into your Facebook account (use a clone account for bot operation).
-3. Export your cookie in JSON or Header String format.
-4. Open `account.txt` in the bot directory and paste your cookie.
-5. (Optional) Paste secondary account cookies into `account2.txt`, `account3.txt` for multi-account switching.
-
-### Step 5: Configure `config.json`
-Open `config.json` and set your:
-- `adminBot`: Add your Facebook UID to the array (e.g., `["61582611751982"]`).
-- `nickNameBot`: Custom nickname (default: `"Baka-Chan"`).
-- `prefix`: Command prefix (default: `!` or `/`).
-- `timeZone`: Set your local timezone (e.g., `"Asia/Dhaka"`).
-
-### Step 6: Start the Bot
-```bash
-npm start
+* Download extension `Cookie Editor` from chrom web store, then go to https://facebook.com, open that extension and click `Export` -> `Export as JSON`
+* Then back to replit, open file `account.txt` and paste your cookie there
+---
+* Go to https://betterstack.com/better-uptime or https://uptimerobot.com/ to create a new monitor for your project
 ```
-
----
-
-## ⚡ 2. 24/7 Deployment with PM2 (VPS / Dedicated Server)
-
-To ensure the bot stays online 24/7 with automatic restart on reboots:
-
-```bash
-# Install PM2 globally
-npm install -g pm2
-
-# Launch Baka-Chan
-pm2 start index.js --name "baka-bot"
-
-# Save configuration and generate startup script
-pm2 save
-pm2 startup
+https://betterstack.com/better-uptime
 ```
-
----
-
-## 🐳 3. Docker Deployment
-
-```bash
-# Build Docker image
-docker build -t baka-chan-bot .
-
-# Run container
-docker run -d --restart always -p 3001:3001 --name baka-bot baka-chan-bot
-```
-
----
-
-## 🌐 4. Cloud Deployment (Render / Railway / Koyeb)
-
-1. Fork or push the repo to your GitHub account.
-2. Create a new Web Service on [Render](https://render.com) or [Railway](https://railway.app).
-3. Connect your GitHub repository.
-4. Configure build settings:
-   - **Build Command:** `npm install`
-   - **Start Command:** `npm start`
-5. Add Environment Variables:
-   - `NODE_ENV`: `production`
-
----
-
-## ❓ Need Help?
-- Contact Developer: [Gtajisan aka Farhan](https://github.com/frnAlt) (`ffjisan804@gmail.com`)
-
 

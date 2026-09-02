@@ -9,22 +9,7 @@ const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const flash = require("connect-flash");
 const Passport = require("passport");
-let bcrypt;
-try {
-    bcrypt = require("bcrypt");
-} catch (_) {
-    try {
-        bcrypt = require("bcryptjs");
-    } catch (_) {
-        const crypto = require("crypto");
-        bcrypt = {
-            hashSync: (pwd, salt) => crypto.createHash("sha256").update(pwd + (salt || "")).digest("hex"),
-            compareSync: (pwd, hash) => crypto.createHash("sha256").update(pwd).digest("hex") === hash || pwd === hash,
-            compare: async (pwd, hash) => crypto.createHash("sha256").update(pwd).digest("hex") === hash || pwd === hash,
-            genSaltSync: () => ""
-        };
-    }
-}
+const bcrypt = require("bcrypt");
 const axios = require("axios");
 const mimeDB = require("mime-db");
 const http = require("http");
@@ -90,63 +75,19 @@ module.exports = async (api) => {
                         fs.writeFileSync(sessionSecretFile, secret);
                         return secret;
                 })();
-        class FloppaSessionStore extends session.Store {
-                constructor() {
-                        super();
-                        this.sessions = new Map();
-                        // Periodic cleanup of expired sessions to prevent memory leaks
-                        setInterval(() => {
-                                const now = Date.now();
-                                for (const [sid, sess] of this.sessions.entries()) {
-                                        const expires = sess?.cookie?.expires;
-                                        if (expires && new Date(expires).getTime() < now) {
-                                                this.sessions.delete(sid);
-                                        }
-                                }
-                        }, 60 * 60 * 1000);
-                }
-                get(sid, cb) {
-                        const sess = this.sessions.get(sid);
-                        if (!sess) return cb(null, null);
-                        const expires = sess?.cookie?.expires;
-                        if (expires && new Date(expires).getTime() < Date.now()) {
-                                this.sessions.delete(sid);
-                                return cb(null, null);
-                        }
-                        cb(null, sess);
-                }
-                set(sid, sess, cb) {
-                        this.sessions.set(sid, sess);
-                        if (cb) cb(null);
-                }
-                destroy(sid, cb) {
-                        this.sessions.delete(sid);
-                        if (cb) cb(null);
-                }
-                touch(sid, sess, cb) {
-                        const current = this.sessions.get(sid);
-                        if (current) {
-                                current.cookie = sess.cookie;
-                                this.sessions.set(sid, current);
-                        }
-                        if (cb) cb(null);
-                }
-                all(cb) {
-                        const arr = {};
-                        for (const [sid, sess] of this.sessions.entries()) {
-                                arr[sid] = sess;
-                        }
-                        cb(null, arr);
-                }
-                length(cb) {
-                        cb(null, this.sessions.size);
-                }
-                clear(cb) {
-                        this.sessions.clear();
-                        if (cb) cb(null);
-                }
-        }
-        const sessionStore = new FloppaSessionStore();
+        const sessionStore = new session.MemoryStore();
+        // Periodic cleanup of expired sessions to prevent MemoryStore memory leak
+        setInterval(() => {
+                sessionStore.all((err, sessions) => {
+                        if (err || !sessions) return;
+                        const now = Date.now();
+                        Object.keys(sessions).forEach(sid => {
+                                const expires = sessions[sid]?.cookie?.expires;
+                                if (expires && new Date(expires).getTime() < now)
+                                        sessionStore.destroy(sid, () => {});
+                        });
+                });
+        }, 60 * 60 * 1000); // every hour
 
         app.use(session({
                 secret: sessionSecret,
@@ -218,13 +159,6 @@ module.exports = async (api) => {
                 middlewareCheckAuthConfigDashboardOfThread
         } = middleWare;
 
-        const validateEmail = (email) => typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-        const isVerifyRecaptcha = async () => true;
-        const randomNumberApikey = (len = 16) => utils.randomString(len);
-        const transporter = null;
-        const convertSize = utils.convertBytes || ((bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`);
-        const drive = null;
-
         const paramsForRoutes = {
                 unAuthenticated, isWaitVerifyAccount, isAdmin, isAuthenticated,
                 isVeryfiUserIDFacebook, checkHasAndInThread, middlewareCheckAuthConfigDashboardOfThread,
@@ -232,9 +166,7 @@ module.exports = async (api) => {
                 generateEmailVerificationCode, dashBoardData, expireVerifyCode, Passport, isVideoFile,
 
                 threadsData, api, createLimiter, config, checkAuthConfigDashboardOfThread,
-                imageExt, videoExt, audioExt, usersData,
-
-                validateEmail, isVerifyRecaptcha, randomNumberApikey, transporter, convertSize, drive
+                imageExt, videoExt, audioExt, usersData
         };
 
         const registerRoute = require("./routes/register.js")(paramsForRoutes);
@@ -245,16 +177,17 @@ module.exports = async (api) => {
         const verifyFbidRoute = require("./routes/verifyfbid.js")(paramsForRoutes);
         const apiRouter = require("./routes/api.js")(paramsForRoutes);
 
-        app.get(["/", "/home", "/dashboard"], (req, res) => {
+        app.get(["/", "/home"], (req, res) => {
                 res.render("home");
         });
 
         app.get("/stats", async (req, res) => {
                 let fcaVersion;
                 try {
-                    fcaVersion = require(path.join(process.cwd(), "fca/package.json")).version;
-                } catch (_) {
-                    fcaVersion = "5.0.0";
+                        fcaVersion = require("@lazyneoaz/metachat/package.json").version;
+                }
+                catch (e) {
+                        fcaVersion = "unknown";
                 }
 
                 const totalThread = (await threadsData.getAll()).filter(t => t.threadID.toString().length > 15).length;
@@ -313,12 +246,7 @@ module.exports = async (api) => {
                         process.exit(2);
                 });
         });
-        app.get("/uptime", (req, res, next) => {
-                if (typeof global.responseUptimeCurrent === "function") {
-                        return global.responseUptimeCurrent(req, res, next);
-                }
-                return res.status(200).send({ status: "ok", uptime: process.uptime() });
-        });
+        app.get("/uptime", global.responseUptimeCurrent);
 
         // Health check endpoint for Render/Railway
         app.get("/health", (req, res) => {
@@ -356,46 +284,8 @@ module.exports = async (api) => {
                 : process.env.API_SERVER_EXTERNAL == "https://api.glitch.com"
                         ? `https://${process.env.PROJECT_DOMAIN}.glitch.me`
                         : `http://localhost:${PORT}`;
-
-        function startServer(targetPort) {
-                return new Promise((resolve, reject) => {
-                        const errorHandler = (err) => {
-                                server.removeListener('listening', listenHandler);
-                                reject(err);
-                        };
-                        const listenHandler = () => {
-                                server.removeListener('error', errorHandler);
-                                resolve(targetPort);
-                        };
-                        server.once('error', errorHandler);
-                        server.once('listening', listenHandler);
-                        server.listen(targetPort);
-                });
-        }
-
-        let actualPort = PORT;
-        try {
-                actualPort = await startServer(PORT);
-        } catch (err) {
-                if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
-                        utils.log.warn("DASHBOARD", `Cannot bind to port ${PORT} (${err.code}). Trying fallback port 5000...`);
-                        try {
-                                actualPort = await startServer(5000);
-                        } catch (fallbackErr) {
-                                utils.log.warn("DASHBOARD", `Fallback port 5000 unavailable (${fallbackErr.code}). Trying random port...`);
-                                try {
-                                        actualPort = await startServer(0);
-                                        actualPort = server.address().port;
-                                } catch (finalErr) {
-                                        utils.log.warn("DASHBOARD", `Could not start dashboard server: ${finalErr.message}`);
-                                }
-                        }
-                } else {
-                        utils.log.warn("DASHBOARD", `Dashboard server error: ${err.message}`);
-                }
-        }
-        const activeDashboardUrl = dashBoardUrl.replace(new RegExp(`:${PORT}$`), `:${actualPort}`);
-        utils.log.info("DASHBOARD", `Dashboard is running: ${activeDashboardUrl}`);
+        await server.listen(PORT);
+        utils.log.info("DASHBOARD", `Dashboard is running: ${dashBoardUrl}`);
         if (config.serverUptime.socket.enable == true)
                 require("../bot/login/socketIO.js")(server);
 };

@@ -2,8 +2,6 @@ const fs = require("fs-extra");
 const SpamTracker = require("../../func/spamTracker.js");
 const CooldownManager = require("../../func/cooldownManager.js");
 const analyticsBatcher = require("../../func/analyticsBatcher.js");
-const InputClass = require("../../func/inputClass.js");
-const OutputClass = require("../../func/outputClass.js");
 const nullAndUndefined = [undefined, null];
 
 // Initialize optimized spam tracker on module load
@@ -299,28 +297,17 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                         }
                 }
 
-                if (typeof threadData?.settings?.hideNotiMessage == "object")
-                        hideNotiMessage = threadData.settings.hideNotiMessage;
+                const threadSettings = threadData?.settings || {};
+                if (typeof threadSettings.hideNotiMessage == "object")
+                        hideNotiMessage = threadSettings.hideNotiMessage;
 
                 const prefix = getPrefix(threadID);
                 const role = getRole(threadData, senderID);
-                const input = new InputClass({ api, event, message, role, prefix, args: body ? body.trim().split(/\s+/).slice(1) : [] });
-                const output = new OutputClass({ api, event, message });
                 const parameters = {
                         api, usersData, threadsData, message, event,
                         userModel, threadModel, prefix, dashBoardModel,
                         globalModel, dashBoardData, globalData, envCommands,
                         envEvents, envGlobal, role,
-                        input, output,
-                        usersDB: usersData,
-                        threadsDB: threadsData,
-                        globalDB: globalData,
-                        money: usersData,
-                        userStat: usersData,
-                        FontSystem: utils.FontSystem,
-                        fonts: utils.FontSystem?.fonts,
-                        styler: utils,
-                        utils,
                         removeCommandNameFromBody: function removeCommandNameFromBody(body_, prefix_, commandName_) {
                                 if ([body_, prefix_, commandName_].every(x => nullAndUndefined.includes(x)))
                                         throw new Error("Please provide body, prefix and commandName to use this function, this function without parameters only support for onStart");
@@ -331,7 +318,7 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                 return body_.replace(new RegExp(`^${prefix_}(\\s+|)${commandName_}`, "i"), "").trim();
                         }
                 };
-                const langCode = threadData?.data?.lang || config.language || "en";
+                const langCode = threadData.data.lang || config.language || "en";
 
                 function createMessageSyntaxError(commandName) {
                         message.SyntaxError = async function () {
@@ -363,7 +350,7 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                 const isSpamBanned = await checkSpamBannedThread(threadID, globalData);
                                 if (isSpamBanned) {
                                         if (!hideNotiMessage.threadBanned)
-                                                message.reply("This group is temporarily banned for command spam.");
+                                                message.reply("This conversation is temporarily restricted due to repeated command spam activity. Please wait a while and try again later.");
                                         return;
                                 }
                         }
@@ -375,9 +362,9 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                         let commandName = args.shift().toLowerCase();
                         let command = GoatBot.commands.get(commandName) || GoatBot.commands.get(GoatBot.aliases.get(commandName));
                         // ———————— CHECK ALIASES SET BY GROUP ———————— //
-                        const aliasesData = threadData?.data?.aliases || {};
+                        const aliasesData = threadData.data.aliases || {};
                         for (const cmdName in aliasesData) {
-                                if (aliasesData[cmdName]?.includes(commandName)) {
+                                if (aliasesData[cmdName].includes(commandName)) {
                                         command = GoatBot.commands.get(cmdName);
                                         break;
                                 }
@@ -510,11 +497,11 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                         else if (needRole == 2)
                                                 return await message.reply(utils.getText({ lang: langCode, head: "handlerEvents" }, "onlyAdminBot2", commandName));
                                         else if (needRole == 3)
-                                                return await message.reply("This command requires premium access.");
+                                                return await message.reply("This command requires premium access. Please upgrade to continue.");
                                         else if (needRole == 4)
-                                                return await message.reply("Developers only.");
+                                                return await message.reply("This feature is restricted to the bot developers.");
                                         else
-                                                return await message.reply("You don't have permission to use this command.");
+                                                return await message.reply("You do not have permission to use this command.");
                                 }
                                 else {
                                         return true;
@@ -699,14 +686,14 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                  +------------------------------------------------+
                 */
                 async function onFirstChat() {
-                                        // onFirstChat is now a Set of threadIDs that have been first chatted
-                                        // Commands register themselves in GoatBot.onChat with a flag for firstChat
+                                        // Ensure first-chat hooks only fire once per thread.
                                         if (GoatBot.onFirstChat.has(threadID))
                                                 return;
 
                                         const args = body ? body.split(/ +/) : [];
+                                        const commandNames = GoatBot.onFirstChatCommands || GoatBot.onFirstChat._commandNames || [];
 
-                                        for (const commandName of GoatBot.onFirstChat._commandNames || []) {
+                                        for (const commandName of commandNames) {
                                                 const command = GoatBot.commands.get(commandName);
                                                 if (!command || !command.onFirstChat)
                                                         continue;
@@ -717,7 +704,6 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
 
                                                 if (getType(command.onFirstChat) == "Function") {
                                                         const defaultOnFirstChat = command.onFirstChat;
-                                                        // convert to AsyncFunction
                                                         command.onFirstChat = async function () {
                                                                 return defaultOnFirstChat(...arguments);
                                                         };
@@ -748,7 +734,6 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                                         });
                                         }
 
-                                        // Mark this thread as having received first chat
                                         GoatBot.onFirstChat.add(threadID);
                 }
 
@@ -787,9 +772,9 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                         else if (needRole == 2)
                                                 return await message.reply(utils.getText({ lang: langCode, head: "handlerEvents" }, "onlyAdminBot2ToUseOnReply", commandName));
                                         else if (needRole == 3)
-                                                return await message.reply("This command requires premium access.");
+                                                return await message.reply("This command is available to premium members only. Please upgrade your access to continue.");
                                         else if (needRole == 4)
-                                                return await message.reply("Developers only.");
+                                                return await message.reply("This feature is restricted to the bot developer team.");
                                 }
                                 else {
                                         return true;
@@ -868,9 +853,9 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                                         else if (needRole == 2)
                                                 return await message.reply(utils.getText({ lang: langCode, head: "handlerEvents" }, "onlyAdminBot2ToUseOnReaction", commandName));
                                         else if (needRole == 3)
-                                                return await message.reply("This command requires premium access.");
+                                                return await message.reply("This command is available to premium members only. Please upgrade your access to continue.");
                                         else if (needRole == 4)
-                                                return await message.reply("Developers only.");
+                                                return await message.reply("This feature is restricted to the bot developer team.");
                                 }
                                 else {
                                         return true;
