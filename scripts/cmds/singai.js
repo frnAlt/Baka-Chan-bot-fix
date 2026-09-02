@@ -1,8 +1,8 @@
-import axios from "axios";
-import fs from "fs-extra";
-import path from "path";
+const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
 
-export const meta = {
+const meta = {
   name: "singai",
   aliases: ["ai-music", "udio", "ai-sing", "musicai"],
   version: "1.2.0",
@@ -16,7 +16,7 @@ export const meta = {
   },
 };
 
-export async function onStart({ message, args }) {
+async function onStart({ message, args }) {
   if (args.length === 0)
     return message.reply(
       "🎵 | Please provide a prompt!\n\nExample:\n" +
@@ -78,7 +78,11 @@ export async function onStart({ message, args }) {
     await message.unsend(waitMsg.messageID);
   } catch (err) {
     console.error("[Udio API Error]", err);
-    await message.reply("🚨 | Failed to generate AI music. The API may be slow or unavail
-                        able.");
+    await message.reply("🚨 | Failed to generate AI music. The API may be slow or unavail able.");
   }
       }
+
+module.exports = {
+  config: meta,
+  onStart,
+};

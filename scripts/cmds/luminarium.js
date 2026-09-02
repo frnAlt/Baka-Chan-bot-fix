@@ -1,8 +1,8 @@
-import axios from "axios";
-import fs from "fs-extra";
-import path from "path";
+const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
 
-export const meta = {
+const meta = {
   name: "luminarium",
   aliases: ["lum", "lumi", "lm"], // ✅ Added clean aliases
   version: "1.1.1",
@@ -16,7 +16,7 @@ export const meta = {
   },
 };
 
-export async function onStart({ message, args }) {
+async function onStart({ message, args }) {
   const prompt = args.join(" ");
   if (!prompt)
     return message.reply("⚠️ | Please provide a prompt!\nExample: luminarium Sybou");
@@ -65,7 +65,11 @@ export async function onStart({ message, args }) {
     await message.unsend(waitMsg.messageID);
   } catch (err) {
     console.error("[Luminarium Error]", err.message);
-    await message.reply("🚨 | Error fetching from Luminarium API. Please try again lat
-er.");
+    await message.reply("🚨 | Error fetching from Luminarium API. Please try again lat er.");
   }
 }
+
+module.exports = {
+  config: meta,
+  onStart,
+};

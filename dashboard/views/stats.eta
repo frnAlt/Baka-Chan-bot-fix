@@ -3,8 +3,8 @@
 }); %>
 <%~ includeFile("partials/message.eta"); %>
 <%~ includeFile("partials/title.eta", {
-	icon: "fas fa-chart-bar",
-	title: "Statistics"
+	icon: "fas fa-robot",
+	title: "Bot stats"
 }); %>
 
 <section class="post my-4">

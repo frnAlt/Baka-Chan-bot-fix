@@ -1,63 +1,132 @@
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
+const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
 
 module.exports = {
-    config: {
-        name: 'bonk',
-        version: '1.0',
-        author: 'Farhan',
-        countDown: 10,
-        prefix: true,
-        groupAdminOnly: false,
-        description: 'Bonk someone with a hammer meme effect.',
-        category: 'fun',
-        guide: {
-            en: '   {pn} [reply to image/@mention|uid|reply]'
+  config: {
+    name: "bonk",
+    version: "1.0.0",
+    author: "Toshiro Editz",
+    countDown: 5,
+    role: 0,
+    shortDescription: {
+      en: "Bonk someone"
+    },
+    longDescription: {
+      en: "Create a bonk canvas with target and your PFP"
+    },
+    category: "fun",
+    guide: {
+      en: "{pn} @mention\n{pn} (reply to a user)"
+    }
+  },
+
+  onStart: async function ({ api, event }) {
+    const cacheDir = path.join(__dirname, "cache");
+    await fs.ensureDir(cacheDir);
+
+    let filePath;
+
+    try {
+      let targetID;
+
+      if (event.messageReply?.senderID) {
+        targetID = event.messageReply.senderID;
+      } else if (
+        event.mentions &&
+        Object.keys(event.mentions).length > 0
+      ) {
+        targetID = Object.keys(event.mentions)[0];
+      } else {
+        return api.sendMessage(
+          "👤 Please reply to or mention someone.",
+          event.threadID,
+          event.messageID
+        );
+      }
+
+      const userInfo = await api
+        .getUserInfoV2(targetID)
+        .catch(() => null);
+
+      const targetUser =
+        userInfo?.[targetID] ||
+        userInfo?.data?.[targetID] ||
+        userInfo?.data ||
+        {};
+
+      const targetName =
+        targetUser.name ||
+        `${targetUser.firstName || ""} ${targetUser.lastName || ""}`.trim() ||
+        "Target";
+
+      const token =
+        "6628568379%7Cc1e620fa708a1d5696fb991c1bde5662";
+
+      const avatar1 =
+        `https://graph.facebook.com/${targetID}/picture` +
+        `?width=720&height=720` +
+        `&access_token=${token}`;
+
+      const avatar2 =
+        `https://graph.facebook.com/${event.senderID}/picture` +
+        `?width=720&height=720` +
+        `&access_token=${token}`;
+
+      const apiUrl =
+        `https://toshiro-api-editz6t9.vercel.app/api/canvas/bonk` +
+        `?avatar1=${encodeURIComponent(avatar1)}` +
+        `&avatar2=${encodeURIComponent(avatar2)}`;
+
+      filePath = path.join(
+        cacheDir,
+        `bonk_${Date.now()}.png`
+      );
+
+      const response = await axios.get(apiUrl, {
+        responseType: "arraybuffer",
+        timeout: 60000,
+        maxRedirects: 5,
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Accept": "image/png,image/jpeg,image/*,*/*"
+        }
+      });
+
+      if (!response.data) {
+        throw new Error("Empty response from Bonk API.");
+      }
+
+      await fs.writeFile(
+        filePath,
+        Buffer.from(response.data)
+      );
+
+      await api.sendMessage(
+        {
+          body: `🔨 Bonk!\n🎯 ${targetName}`,
+          attachment: fs.createReadStream(filePath)
         },
-    },
+        event.threadID,
+        event.messageID
+      );
 
-    onStart: async ({ api, event }) => {
-        const { senderID, mentions, messageReply } = event;
-        let targetID = senderID;
-        let targetImage = null;
+    } catch (error) {
+      console.error(
+        "Bonk:",
+        error.response?.status || error.message
+      );
 
-        // If replied to an image
-        if (messageReply && messageReply.attachments && messageReply.attachments[0]?.url) {
-            targetImage = messageReply.attachments[0].url;
-        }
-        // If mention → fetch FB avatar
-        else if (Object.keys(mentions).length > 0) {
-            targetID = Object.keys(mentions)[0];
-            targetImage = `https://graph.facebook.com/${targetID}/picture?width=512&height=512&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662`;
-        }
-        // Fallback → user’s own avatar
-        else {
-            targetImage = `https://graph.facebook.com/${senderID}/picture?width=512&height=512&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662`;
-        }
+      await api.sendMessage(
+        `❌ Failed to generate bonk canvas.\n\n${error.response?.status || error.message}`,
+        event.threadID,
+        event.messageID
+      );
 
-        const apiUrl = `https://sus-apis.onrender.com/api/bonk-hammer?image=${encodeURIComponent(targetImage)}`;
-
-        try {
-            console.log(`[API Request] Sending to: ${apiUrl}`);
-            const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-            console.log(`[API Response] Status: ${response.status}, Status Text: ${response.statusText}`);
-
-            const cacheDir = path.join(__dirname, 'cache');
-            if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-
-            const imagePath = path.join(cacheDir, `bonk_${Date.now()}.jpg`);
-            fs.writeFileSync(imagePath, Buffer.from(response.data, 'binary'));
-
-            api.sendMessage({
-                body: "🔨 BONK! Someone just got hammered 😂",
-                attachment: fs.createReadStream(imagePath)
-            }, event.threadID, () => fs.unlinkSync(imagePath));
-
-        } catch (error) {
-            console.error("Error generating bonk image:", error);
-            api.sendMessage("❌ Sorry, I couldn't generate the bonk image right now.", event.threadID);
-        }
-    },
+    } finally {
+      if (filePath && await fs.pathExists(filePath)) {
+        await fs.remove(filePath).catch(() => {});
+      }
+    }
+  }
 };
-              

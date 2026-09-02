@@ -1,81 +1,140 @@
-const axios = require("axios");
-const fs = require("fs-extra");
+const { getStreamFromURL } = global.utils;
+
+function getRandomItem(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+async function getSafeName(usersData, userID) {
+  let name = await usersData.getName(userID);
+  if (!name) {
+    await usersData.refreshInfo(userID);
+    name = await usersData.getName(userID);
+  }
+  return name || "Unknown User";
+}
+
+function generateLovePercentages(base) {
+  return [
+    `${base}`,
+    `${(base + Math.random()).toFixed(2)}`,
+    `${Math.min(100, base + 5)}`,
+    `${Math.max(0, base - 5)}`,
+    `${(Math.random() * 100).toFixed(2)}`,
+    `${100 + Math.floor(Math.random() * 20)}`,
+    `${-Math.floor(Math.random() * 20)}`
+  ];
+}
+
+function getLoveLabel(value) {
+  const v = parseFloat(value);
+  if (v < 0) return "💔 Toxic vibes";
+  if (v <= 20) return "😶 No spark";
+  if (v <= 40) return "🌱 Just starting";
+  if (v <= 60) return "😊 Friendly feelings";
+  if (v <= 80) return "💕 Sweet connection";
+  if (v <= 100) return "🔥 True love";
+  return "💞 Beyond limits!";
+}
 
 module.exports = {
   config: {
     name: "pair",
-    aliases: [],
-    version: "1.2",
-    author: "Farhan",
-    countDown: 5,
+    version: "2.1",
+    author: "Toshiro Editz",
+    countDown: 10,
     role: 0,
-    shortDescription: "Pair two people randomly or custom",
-    longDescription: "",
-    category: "fun",
-    guide: "{pn} or {pn} @User"
+    description: {
+      en: "Pair two users together with love percentage"
+    },
+    category: "love",
+    guide: {
+      en:
+        "{pn}\n" +
+        "{pn} @user\n" +
+        "{pn} @user1 @user2\n" +
+        "{pn} <uid1> <uid2>\n" +
+        "(reply also supported)"
+    }
   },
 
-  onStart: async function({ api, event, usersData }) {
-    const { threadID, messageID, senderID, mentions } = event;
-    const { participantIDs } = await api.getThreadInfo(threadID);
-    const botID = api.getCurrentUserID();
-    const nameSender = (await usersData.get(senderID)).name;
+  onStart: async function ({ event, threadsData, message, usersData, args }) {
+    const { senderID, threadID, mentions } = event;
+    const mentionIDs = Object.keys(mentions || {});
+    let user1, user2;
 
-    let uid2, name2;
+    /* 🔹 Fetch priority */
+    if (event.messageReply) {
+      user1 = senderID;
+      user2 = event.messageReply.senderID;
 
-    // === Custom pair: user mentions someone ===
-    if (Object.keys(mentions).length > 0) {
-      const mentionIDs = Object.keys(mentions);
-      uid2 = mentionIDs[0]; // Only take first mention
-      name2 = (await usersData.get(uid2)).name;
-    } 
-    // === Random pair mode ===
-    else {
-      const listUserID = participantIDs.filter(ID => ID != botID && ID != senderID);
-      uid2 = listUserID[Math.floor(Math.random() * listUserID.length)];
-      name2 = (await usersData.get(uid2)).name;
+    } else if (mentionIDs.length === 2) {
+      [user1, user2] = mentionIDs;
+
+    } else if (mentionIDs.length === 1) {
+      user1 = senderID;
+      user2 = mentionIDs[0];
+
+    } else if (args.length >= 2 && !isNaN(args[0]) && !isNaN(args[1])) {
+      user1 = args[0];
+      user2 = args[1];
+
+    } else {
+      /* 🔹 Random pairing (gender based) */
+      const threadData = await threadsData.get(threadID);
+      const members = threadData.members.filter(m => m.inGroup);
+
+      const sender = members.find(m => m.userID === senderID);
+      if (!sender?.gender)
+        return message.reply("❌ Please set your gender to use random pair.");
+
+      const partnerList = members.filter(
+        m =>
+          m.userID !== senderID &&
+          m.gender &&
+          m.gender !== sender.gender
+      );
+
+      if (!partnerList.length)
+        return message.reply("⚠ No suitable partner found.");
+
+      user1 = senderID;
+      user2 = getRandomItem(partnerList).userID;
     }
 
-    const lovePercent = Math.floor(Math.random() * 101);
-    const arrayTag = [
-      { id: senderID, tag: nameSender },
-      { id: uid2, tag: name2 }
-    ];
+    /* 🔹 Names */
+    const [name1, name2] = await Promise.all([
+      getSafeName(usersData, user1),
+      getSafeName(usersData, user2)
+    ]);
 
-    // === Fetch avatars + GIF in parallel ===
-    try {
-      const [avatar1, avatar2, gifLove] = await Promise.all([
-        axios.get(`https://graph.facebook.com/${senderID}/picture?width=512&height=512&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`, { responseType: "arraybuffer" }),
-        axios.get(`https://graph.facebook.com/${uid2}/picture?width=512&height=512&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`, { responseType: "arraybuffer" }),
-        fs.pathExists(__dirname + "/cache/giflove.png") 
-          ? fs.readFile(__dirname + "/cache/giflove.png") 
-          : axios.get(`https://i.ibb.co/wC2JJBb/trai-tim-lap-lanh.gif`, { responseType: "arraybuffer" }).then(res => {
-              fs.writeFileSync(__dirname + "/cache/giflove.png", res.data);
-              return res.data;
-            })
-      ]);
+    /* 🔹 Graph API avatars */
+    const avatar1 =
+      `https://graph.facebook.com/${user1}/picture?width=512&height=512&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662`;
 
-      // Write avatars to cache
-      fs.writeFileSync(__dirname + "/cache/avt1.png", avatar1.data);
-      fs.writeFileSync(__dirname + "/cache/avt2.png", avatar2.data);
+    const avatar2 =
+      `https://graph.facebook.com/${user2}/picture?width=512&height=512&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662`;
 
-      const attachments = [
-        fs.createReadStream(__dirname + "/cache/avt1.png"),
-        fs.createReadStream(__dirname + "/cache/giflove.png"),
-        fs.createReadStream(__dirname + "/cache/avt2.png")
-      ];
+    /* 🔹 Love calculation */
+    const base = Math.floor(Math.random() * 100) + 1;
+    const rate = getRandomItem(generateLovePercentages(base));
+    const label = getLoveLabel(rate);
 
-      const msg = {
-        body: `🥰 Successful pairing! 💌 Wishing you both eternal happiness 💕\nDouble ratio: ${lovePercent}%\n${nameSender} 💓 ${name2}`,
-        mentions: arrayTag,
-        attachment: attachments
-      };
+    const body =
+      `💘 𝗣𝗔𝗜𝗥 𝗠𝗔𝗧𝗖𝗛 💘\n\n` +
+      `❤️ @${name1} × @${name2}\n` +
+      `💖 Love Rate: ${rate}%\n` +
+      `${label}`;
 
-      return api.sendMessage(msg, threadID, messageID);
-
-    } catch (err) {
-      console.error("Pair command error:", err);
-      return api.sendMessage("❌ Error generating pair. Try again later.", threadID, messageID);
-    }
+    return message.reply({
+      body,
+      mentions: [
+        { tag: `@${name1}`, id: user1 },
+        { tag: `@${name2}`, id: user2 }
+      ],
+      attachment: [
+        await getStreamFromURL(avatar1),
+        await getStreamFromURL(avatar2)
+      ]
+    });
   }
 };

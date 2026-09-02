@@ -1,5 +1,6 @@
-
-const { threadsData } = global.db;
+function getThreadsData() {
+	return global.db?.threadsData || null;
+}
 
 function isPostMethod(req) {
 	return req.method == "POST";
@@ -68,7 +69,8 @@ module.exports = function (checkAuthConfigDashboardOfThread) {
 		async checkHasAndInThread(req, res, next) {
 			const userID = req.user.facebookUserID;
 			const threadID = isPostMethod(req) ? req.body.threadID : req.params.threadID;
-			const threadData = await threadsData.get(threadID);
+			const tData = getThreadsData();
+			const threadData = tData ? await tData.get(threadID) : null;
 
 			if (!threadData) {
 				if (isPostMethod(req))
@@ -126,19 +128,10 @@ module.exports = function (checkAuthConfigDashboardOfThread) {
 						message: "Bạn không phải là admin của bot"
 					});
 
-				req.flash("errors", {
-					msg: "[!] Bạn không phải là admin của bot"
-				});
+				req.flash("errors", { msg: "Bạn không phải là admin của bot" });
 				return res.redirect("/dashboard");
 			}
 			next();
-		},
-
-		checkAuthConfigDashboardOfThread(threadData, userID) {
-			if (!threadData || !threadData.adminIDs) return false;
-			return threadData.adminIDs.includes(userID) || 
-			       (threadData.data && threadData.data.dashboardAccess && 
-			        threadData.data.dashboardAccess.includes(userID));
 		}
 	};
 };

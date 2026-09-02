@@ -1,6 +1,6 @@
-import axios from "axios";
-import fs from "fs";
-import path from "path";
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 const config = {
   name: "editis",
@@ -85,7 +85,7 @@ async function onCall({ message, args, event, api }) {
   }
 }
 
-export default {
+module.exports = {
   config,
   onCall
 };

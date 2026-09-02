@@ -1,13 +1,11 @@
-const fs = require("fs");
-const path = require("path");
 const { getTime } = global.utils;
 
 module.exports = {
 	config: {
 		name: "logsbot",
 		isBot: true,
-		version: "2.3",
-		author: "NTKhang | Fixed & Extended by Farhan",
+		version: "1.4",
+		author: "NTKhang",
 		envConfig: {
 			allow: true
 		},
@@ -30,45 +28,37 @@ module.exports = {
 	},
 
 	onStart: async ({ usersData, threadsData, event, api, getLang }) => {
-		const botID = api.getCurrentUserID();
-		const { author, threadID, logMessageType, logMessageData } = event;
+		if (
+			(event.logMessageType == "log:subscribe" && event.logMessageData.addedParticipants.some(item => item.userFbId == api.getCurrentUserID()))
+			|| (event.logMessageType == "log:unsubscribe" && event.logMessageData.leftParticipantFbId == api.getCurrentUserID())
+		) return async function () {
+			let msg = getLang("title");
+			const { author, threadID } = event;
+			if (author == api.getCurrentUserID())
+				return;
+			let threadName;
+			const { config } = global.GoatBot;
 
-		// Only trigger if bot is added or removed
-		const isAdded = logMessageType == "log:subscribe" && logMessageData.addedParticipants.some(item => item.userFbId == botID);
-		const isKicked = logMessageType == "log:unsubscribe" && logMessageData.leftParticipantFbId == botID;
+			if (event.logMessageType == "log:subscribe") {
+				if (!event.logMessageData.addedParticipants.some(item => item.userFbId == api.getCurrentUserID()))
+					return;
+				threadName = (await api.getThreadInfo(threadID)).threadName;
+				const authorName = await usersData.getName(author);
+				msg += getLang("added", authorName);
+			}
+			else if (event.logMessageType == "log:unsubscribe") {
+				if (event.logMessageData.leftParticipantFbId != api.getCurrentUserID())
+					return;
+				const authorName = await usersData.getName(author);
+				const threadData = await threadsData.get(threadID);
+				threadName = threadData.threadName;
+				msg += getLang("kicked", authorName);
+			}
+			const time = getTime("DD/MM/YYYY HH:mm:ss");
+			msg += getLang("footer", author, threadName, threadID, time);
 
-		if (!isAdded && !isKicked) return;
-		if (author == botID) return;
-
-		let msg = getLang("title");
-		let threadName = "Unknown";
-		let authorName = await usersData.getName(author);
-
-		if (isAdded) {
-			const info = await api.getThreadInfo(threadID);
-			threadName = info.threadName || "Unknown";
-			msg += getLang("added", authorName);
-		}
-		else if (isKicked) {
-			const threadData = await threadsData.get(threadID);
-			threadName = threadData?.threadName || "Unknown";
-			msg += getLang("kicked", authorName);
-		}
-
-		const time = getTime("DD/MM/YYYY HH:mm:ss");
-		msg += getLang("footer", author, threadName, threadID, time);
-
-		// Video path (assets/log.mp4)
-		const videoPath = path.join(__dirname, "../../assets/log.mp4");
-		const attachment = fs.existsSync(videoPath) ? fs.createReadStream(videoPath) : null;
-
-		// Send log to all admins
-		const { config } = global.GoatBot;
-		for (const adminID of config.adminBot) {
-			api.sendMessage({ body: msg, attachment }, adminID);
-		}
-
-		// Also reply in the group itself
-		return api.sendMessage({ body: msg, attachment }, threadID);
+			for (const adminID of config.adminBot)
+				api.sendMessage(msg, adminID);
+		};
 	}
 };

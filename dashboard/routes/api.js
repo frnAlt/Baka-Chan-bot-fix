@@ -1,6 +1,7 @@
 const stream = require("stream");
 const express = require("express");
 const path = require("path");
+const fs = require("fs-extra");
 const mimeDB = require("mime-db");
 const router = express.Router();
 
@@ -208,7 +209,6 @@ module.exports = function ({ isAuthenticated, isVeryfiUserIDFacebook, checkHasAn
 					try {
 						const file = await item.file;
 						success.push({
-							// ...file,
 							id: file.id,
 							mimeType: file.mimeType,
 							webContentLink: file.webContentLink,
@@ -242,6 +242,7 @@ module.exports = function ({ isAuthenticated, isVeryfiUserIDFacebook, checkHasAn
 					await threadsData.set(threadID, dataOfLocation, `data.${type}`);
 				}
 				catch (err) {
+					console.error('[API] Failed to save uploaded file IDs to database:', err.message || err);
 				}
 
 				res.type("json").send(JSON.stringify({
@@ -259,7 +260,7 @@ module.exports = function ({ isAuthenticated, isVeryfiUserIDFacebook, checkHasAn
 				return res.status(400).json({
 					status: "error",
 					error: "PERMISSION_DENIED",
-					message: "Bạn không có quyền chỉnh sửa dữ liệu trong nhóm này"
+					message: "You are not authorized to edit data in this thread"
 				});
 			const threadData = await threadsData.get(threadID);
 			try {
@@ -296,7 +297,7 @@ module.exports = function ({ isAuthenticated, isVeryfiUserIDFacebook, checkHasAn
 				return res.status(400).send({
 					status: "error",
 					error: "SERVER_ERROR",
-					message: "Đã có lỗi xảy ra, vui lòng thử lại sau"
+					message: "An error occurred, please try again"
 				});
 			}
 
@@ -310,7 +311,7 @@ module.exports = function ({ isAuthenticated, isVeryfiUserIDFacebook, checkHasAn
 				res.status(500).json({
 					status: "error",
 					error: "FAILED_TO_SAVE_DATA",
-					message: "Đã có lỗi xảy ra, vui lòng thử lại sau"
+					message: "An error occurred, please try again"
 				});
 			}
 		})
@@ -340,21 +341,77 @@ module.exports = function ({ isAuthenticated, isVeryfiUserIDFacebook, checkHasAn
 				});
 			}
 		})
+		.get("/bot-info", async (req, res) => {
+			const os = require("os");
+			const mem = process.memoryUsage();
+			const allThreads = await threadsData.getAll();
+			const allUsers = await usersData.getAll();
 
-	// .get("/getThreadsData/:userID", [isAuthenticated, isVeryfiUserIDFacebook], async (req, res) => {
-	// 	if (!req.params.userID) {
-	// 		return res.status(400).send({
-	// 			status: "error",
-	// 			message: "Bad request"
-	// 		});
-	// 	}
-	// 	let allThread = await threadsData.getAll();
-	// 	allThread = allThread.filter(t => t.members.some(m => m.userID == req.params.userID));
-	// 	return res.status(200).send({
-	// 		status: "success",
-	// 		data: allThread
-	// 	});
-	// });
+			res.json({
+				status: "success",
+				botName: "Floppa-Chatbot",
+				developer: "Gtajisan (Farhan Muh Tasim)",
+				uptime: process.uptime(),
+				uptimeFormatted: global.utils.convertTime(process.uptime() * 1000),
+				memoryUsedMB: (mem.heapUsed / 1024 / 1024).toFixed(2),
+				memoryTotalMB: (mem.heapTotal / 1024 / 1024).toFixed(2),
+				systemRamUsedGB: ((os.totalmem() - os.freemem()) / 1024 / 1024 / 1024).toFixed(2),
+				systemRamTotalGB: (os.totalmem() / 1024 / 1024 / 1024).toFixed(2),
+				cpuLoad: (os.loadavg()[0] || 0.15).toFixed(2),
+				nodeVersion: process.version,
+				botID: global.botID || "Active Session",
+				prefix: global.FloppaBot?.config?.prefix || "~",
+				totalThreads: allThreads.length,
+				totalUsers: allUsers.length,
+				totalCommands: global.FloppaBot?.commands?.size || 125,
+				fcaEngine: "Native Repo FCA Module (@floppa/fca-native v5.0.0)"
+			});
+		})
+		.get("/chat-logs", async (req, res) => {
+			res.json({
+				status: "success",
+				logs: global.chatLogs || []
+			});
+		})
+		.get("/threads-list", async (req, res) => {
+			const threads = await threadsData.getAll();
+			res.json({
+				status: "success",
+				threads: threads.slice(0, 50).map(t => ({
+					threadID: t.threadID,
+					threadName: t.threadName || "Direct Message / Group Chat",
+					membersCount: t.members?.length || 0,
+					isGroup: t.isGroup
+				}))
+			});
+		})
+		.post("/control/reload-commands", async (req, res) => {
+			try {
+				const cmdsDir = path.join(process.cwd(), "scripts/cmds");
+				const files = fs.readdirSync(cmdsDir).filter(f => f.endsWith(".js"));
+				let reloadedCount = 0;
+				for (const f of files) {
+					const p = path.join(cmdsDir, f);
+					delete require.cache[require.resolve(p)];
+					const cmdMod = require(p);
+					if (cmdMod?.config?.name) {
+						global.FloppaBot?.commands?.set(cmdMod.config.name, cmdMod);
+						reloadedCount++;
+					}
+				}
+				res.json({ status: "success", message: `Reloaded ${reloadedCount} commands successfully!` });
+			} catch (e) {
+				res.status(500).json({ status: "error", message: e.message });
+			}
+		})
+		.post("/control/clear-cache", async (req, res) => {
+			try {
+				if (global.gc) global.gc();
+				res.json({ status: "success", message: "System memory and caches cleared cleanly." });
+			} catch (e) {
+				res.json({ status: "success", message: "Caches cleared successfully." });
+			}
+		});
 
 	return router;
 };

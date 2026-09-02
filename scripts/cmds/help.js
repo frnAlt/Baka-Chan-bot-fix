@@ -1,167 +1,104 @@
-/**
- * Baka-Chan Bot V2 — Help Command
- * ✦ Developed by: NTKhang • MD Tawsif • Farhan
- * ✦ Style: Futuristic terminal aesthetic
- */
-
-const fs = require("fs");
+const fs = require("fs-extra");
 const path = require("path");
-const { getPrefix } = global.utils;
-const { commands, aliases } = global.GoatBot;
-
-const BANNER_PATH = path.join(process.cwd(), "assets", "baka-intro.mp4"); // Optional video or image
-const DO_NOT_DELETE = "✦ BAKA-CHAN ✦";
-
-const TAGLINES = [
-  "⚡ Power up your chat with Baka-Chan!",
-  "🧠 Smart, sleek, and ready for action!",
-  "💫 Built for legends — driven by command!",
-  "🔥 Unleash full control of your bot!",
-  "🎮 Explore. Command. Conquer."
-];
-
-const SEPARATORS = {
-  top: "✦━━━━━━━━━━━━━━━━━━━━✦",
-  bottom: "✦━━━━━━━━━━━━━━━━━━━━✦"
-};
 
 module.exports = {
-  config: {
-    name: "help",
-    version: "3.0",
-    author: "NTKhang • MD Tawsif • Farhan",
-    countDown: 5,
-    role: 0,
-    shortDescription: { en: "List all commands or details of one" },
-    longDescription: { en: "View categorized commands or inspect a specific command's details, usage, and role." },
-    category: "info",
-    guide: { en: "{pn} [command name | page number]" },
-    priority: 1
-  },
+	config: {
+		name: "help",
+		aliases: ["menu", "commands"],
+		version: "4.8",
+		author: "NeoKEX",
+		shortDescription: "Show all available commands",
+		longDescription: "Displays a clean and premium-styled categorized list of commands.",
+		category: "system",
+		guide: "{pn}help [command name]"
+	},
 
-  onStart: async function ({ message, args, event, threadsData, role }) {
-    const { threadID } = event;
-    const prefix = getPrefix(threadID);
-    const tagline = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
+	onStart: async function ({ message, args, prefix }) {
+		const allCommands = global.GoatBot.commands;
+		const categories = {};
 
-    // ─── NO ARG: SHOW COMMAND LIST ─────────────────────────────
-    if (args.length === 0) {
-      let msg = `
-${SEPARATORS.top}
-           𝗕𝗔𝗞𝗔-𝗖𝗛𝗔𝗡 𝗕𝗢𝗧  
-${SEPARATORS.bottom}
-${tagline}
+		const emojiMap = {
+			ai: "➥", "ai-image": "➥", group: "➥", system: "➥",
+			fun: "➥", owner: "➥", config: "➥", economy: "➥",
+			media: "➥", "18+": "➥", tools: "➥", utility: "➥",
+			info: "➥", image: "➥", game: "➥", admin: "➥",
+			rank: "➥", boxchat: "➥", others: "➥"
+		};
 
-`;
+		const cleanCategoryName = (text) => {
+			if (!text) return "others";
+			return text
+				.normalize("NFKD")
+				.replace(/[^\w\s-]/g, "")
+				.replace(/\s+/g, " ")
+				.trim()
+				.toLowerCase();
+		};
 
-      // Categorize commands
-      const categories = {};
-      for (const [name, cmd] of commands) {
-        if (cmd.config.role > role) continue;
-        const category = cmd.config.category || "Misc";
-        if (!categories[category]) categories[category] = [];
-        categories[category].push(name);
-      }
+		for (const [name, cmd] of allCommands) {
+			const cat = cleanCategoryName(cmd.config.category);
+			if (!categories[cat]) categories[cat] = [];
+			categories[cat].push(cmd.config.name);
+		}
 
-      // Sort and display neatly
-      Object.keys(categories)
-        .sort()
-        .forEach((cat) => {
-          const cmds = categories[cat].sort();
-          msg += `╭── ✦ ${cat.toUpperCase()} ✦ ──╮\n`;
-          for (let i = 0; i < cmds.length; i += 3) {
-            const line = cmds
-              .slice(i, i + 3)
-              .map((cmd) => `✧ ${cmd}`)
-              .join("   ");
-            msg += `│ ${line}\n`;
-          }
-          msg += `╰─────────────────────╯\n`;
-        });
 
-      msg += `
-╭── ✦ BOT INFO ✦ ──╮
-│ 📜 Total Cmds: ${commands.size}
-│ 💡 Usage: ${prefix}help <cmd>
-│ 👑 Owner: Farhan (frnwot)
-│ 🌐 fb.com/share/1BMmLwy1JY/
-│ ${DO_NOT_DELETE}
-╰───────────────────╯
-`;
+		if (args[0]) {
+			const query = args[0].toLowerCase();
+			const cmd =
+				allCommands.get(query) ||
+				[...allCommands.values()].find((c) => (c.config.aliases || []).includes(query));
+			if (!cmd) return message.reply(`❌ Command "${query}" not found.`);
 
-      return sendWithOptionalMedia(message, msg, BANNER_PATH);
-    }
+			const {
+				name,
+				version,
+				author,
+				guide,
+				category,
+				shortDescription,
+				longDescription,
+				aliases,
+				role 
+			} = cmd.config;
 
-    // ─── ARG PRESENT: SHOW SPECIFIC COMMAND ────────────────────
-    const commandName = args[0].toLowerCase();
-    const command = commands.get(commandName) || commands.get(aliases.get(commandName));
+			const desc =
+				typeof longDescription === "string"
+					? longDescription
+					: longDescription?.en || shortDescription?.en || shortDescription || "No description";
 
-    if (!command) {
-      return message.reply(`⚠️ Command "${commandName}" not found. Try using "${prefix}help" to see all commands.`);
-    }
+			const usage =
+				typeof guide === "string"
+					? guide.replace(/{pn}/g, prefix)
+					: guide?.en?.replace(/{pn}/g, prefix) || `${prefix}${name}`;
 
-    const cfg = command.config;
-    const roleText = getRoleText(cfg.role);
-    const author = cfg.author || "Unknown";
-    const longDesc = cfg.longDescription?.en || cfg.shortDescription?.en || "No description provided.";
-    const usage = (cfg.guide?.en || "No usage guide available.")
-      .replace(/\{p\}|\{prefix\}/g, prefix)
-      .replace(/\{n\}|\{name\}/g, cfg.name)
-      .replace(/\{pn\}/g, prefix + cfg.name);
+						const requiredRole = cmd.config.role !== undefined ? cmd.config.role : 0; 
 
-    const aliasesList = cfg.aliases?.length ? cfg.aliases.join(", ") : "None";
-    const cooldown = cfg.countDown ? `${cfg.countDown}s` : "1s";
+			return message.reply(
+				`☠️ 𝗖𝗢𝗠𝗠𝗔𝗡𝗗 𝗜𝗡𝗙𝗢 ☠️\n\n` +
+				`➥ Name: ${name}\n` +
+				`➥ Category: ${category || "Uncategorized"}\n` +
+				`➥ Description: ${desc}\n` +
+				`➥ Aliases: ${aliases?.length ? aliases.join(", ") : "None"}\n` +
+				`➥ Usage: ${usage}\n` +
+				`➥ Permission: ${requiredRole}\n` + 
+				`➥ Author: ${author}\n` +
+				`➥ Version: ${version}`
+			);
+		}
 
-    const infoMsg = `
-${SEPARATORS.top}
-        𝗖𝗢𝗠𝗠𝗔𝗡𝗗 𝗗𝗘𝗧𝗔𝗜𝗟𝗦  
-${SEPARATORS.bottom}
+		const formatCommands = (cmds) =>
+			cmds.sort().map((cmd) => `× ${cmd}`);
 
-📌 Name: ${cfg.name}
-📖 Description: ${longDesc}
-📂 Aliases: ${aliasesList}
-⚙️ Version: ${cfg.version || "1.0"}
-🛡️ Role: ${roleText}
-⏱️ Cooldown: ${cooldown}
-👤 Author: ${author}
-💡 Usage: ${usage}
+		let msg = `━━━☠️ 𝗡𝗲𝗼𝗞𝗘𝗫 𝗔𝗜 ☠️━━━\n`;
+		const sortedCategories = Object.keys(categories).sort();
+		for (const cat of sortedCategories) {
+			const emoji = emojiMap[cat] || "➥";
+			msg += `\n╭──『 ${cat.toUpperCase()} 』\n`; 
+			msg += `${formatCommands(categories[cat]).join(' ')}\n`; 
+			msg += `╰────────────◊\n`;
+		}
+		msg += `\n➥ Use: ${prefix}help [command name] for details\n➥Use: ${prefix}callad to talk with bot admins '_'`;
 
-${SEPARATORS.bottom}
-`;
-
-    return sendWithOptionalMedia(message, infoMsg, BANNER_PATH);
-  }
+		return message.reply(msg);
+	}
 };
-
-// ─── Utility Functions ─────────────────────────────────────────
-
-function getRoleText(role) {
-  switch (role) {
-    case 0:
-      return "0 ✦ All Users";
-    case 1:
-      return "1 ✦ Group Admins";
-    case 2:
-      return "2 ✦ Bot Admins";
-    case 3:
-      return "3 ✦ Super Admins";
-    default:
-      return "Unknown Role";
-  }
-}
-
-function sendWithOptionalMedia(message, body, mediaPath) {
-  try {
-    if (fs.existsSync(mediaPath)) {
-      return message.reply({
-        body,
-        attachment: fs.createReadStream(mediaPath)
-      });
-    } else {
-      return message.reply(body);
-    }
-  } catch (err) {
-    console.error("Help message send error:", err);
-    return message.reply(body);
-  }
-}

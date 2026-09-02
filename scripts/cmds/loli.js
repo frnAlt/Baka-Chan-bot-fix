@@ -1,6 +1,6 @@
-import axios from "axios";
-import fs from "fs-extra";
-import path from "path";
+const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
 
 const config = {
   name: "loli",
@@ -50,7 +50,7 @@ async function onCall({ message }) {
   }
 }
 
-export default {
+module.exports = {
   config,
   onCall
 };

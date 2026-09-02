@@ -1,138 +1,96 @@
-const axios = require("axios");
+const axios = require('axios');
+const fs = require('fs-extra');
 
 module.exports = {
   config: {
     name: "say",
-    aliases: ["sy", "tts"],
-    version: "4.5",
-    author: "Farhan & Milan",
-    countDown: 1,
+    version: "1.7",
+    author: "Samir Œ",
+    countDown: 5,
     role: 0,
-    shortDescription: "Speak text with anime, celebrity, or random voices",
-    longDescription: "Text-to-speech using anime, game, famous, or random voices. You can also type any voice name if it exists on StreamElements.",
-    category: "Fun",
+    category: "tts",
+    description: "bot will make your text into voice.",
     guide: {
-      en: `{pn} <voice> <text>
-Examples:
-• {pn} goku Kamehameha!
-• {pn} trump Make America great again!
-• {pn} Hello there (random voice)
-• {pn} hf:facebook/mms-tts-eng Hi!`
-    },
+      en: "{pn} your text (default will be 'en') | {pn} your text | [use two words ISO 639-1 code, ex: English-en, Bangla-bn, Hindi-hi or more, search Google for your language code]"
+    }
   },
 
-  onStart: async function ({ message, args }) {
-    if (!args[0]) return message.reply("⚠️ Please enter text or a voice with text.");
+  onStart: async function ({ api, args, message, event }) {
+    const { getPrefix } = global.utils;
+    const p = getPrefix(event.threadID);
 
-    let voice = args[0].toLowerCase();
-    let text = args.slice(1).join(" ");
+    let text;
+    let number = 'en';
 
-    // If user didn’t specify a voice (e.g., "!say Hello")
-    if (!text) {
-      text = voice;
-      voice = "random"; // use random voice system
+    if (event.type === "message_reply") {
+      text = event.messageReply.body;
+    } else {
+      if (args && args.length > 0) {
+        if (args.includes("|")) {
+          const splitArgs = args.join(" ").split("|").map(arg => arg.trim());
+          text = splitArgs[0];
+          number = splitArgs[1] || 'en';
+        } else {
+          text = args.join(" ");
+        }
+      } else {
+        text = '';
+      }
     }
+
+    if (!text) {
+      return message.reply(`Please provide some text. Example:\n${p}say hi there`);
+    }
+
+    const path = `${__dirname}/tmp/tts.mp3`;
 
     try {
-      let audioUrl;
+      if (text.length <= 150) {
+        const response = await axios({
+          method: "get",
+          url: `https://translate.google.com/translate_tts?ie=UTF-8&tl=${number}&client=tw-ob&q=${encodeURIComponent(text)}`,
+          responseType: "stream"
+        });
 
-      // 🎭 Full list of character & celebrity voices
-      const characterVoices = {
-        // 🦸 Anime & Game
-        goku: "Joey",
-        vegeta: "Matthew",
-        naruto: "Justin",
-        sasuke: "Russell",
-        luffy: "Arthur",
-        zoro: "Brian",
-        sanji: "Joey",
-        gojo: "George",
-        itachi: "Matthew",
-        tanjiro: "Kevin",
-        nezuko: "Kimberly",
-        mikasa: "Emma",
-        eren: "Joey",
-        levi: "Russell",
-        saitama: "Brian",
-        bulma: "Salli",
-        hinata: "Kimberly",
-        sakura: "Emma",
-        nami: "Joanna",
-        rem: "Salli",
-        zero_two: "Kimberly",
+        const writer = fs.createWriteStream(path);
+        response.data.pipe(writer);
+        writer.on("finish", () => {
+          message.reply({
+            body: text,
+            attachment: fs.createReadStream(path)
+          }, () => {
+            fs.remove(path);
+          });
+        });
+      } else {
+        const chunkSize = 150;
+        const chunks = text.match(new RegExp(`.{1,${chunkSize}}`, 'g'));
 
-        // 🧍 Famous People
-        trump: "Brian",
-        obama: "Matthew",
-        elon: "Joey",
-        musk: "Joey",
-        modi: "Russell",
-        sheikh: "Matthew",
-        hasina: "Kimberly",
-        mujib: "George",
-        biden: "Brian",
-        putin: "Matthew",
-        taylor: "Salli",
-        selena: "Kimberly",
-        billgates: "George",
-        mark: "Russell",
-        zuckerberg: "Russell",
-        drake: "George",
-        messi: "Arthur",
-        ronaldo: "Matthew",
+        for (let i = 0; i < chunks.length; i++) {
+          const response = await axios({
+            method: "get",
+            url: `https://translate.google.com/translate_tts?ie=UTF-8&tl=${number}&client=tw-ob&q=${encodeURIComponent(chunks[i])}`,
+            responseType: "stream"
+          });
 
-        // 🧙 Fun extras
-        batman: "Brian",
-        spiderman: "Joey",
-        spongebob: "Ivy",
-        pikachu: "Emma",
-        joker: "Russell",
-        thanos: "Brian",
-      };
+          const writer = fs.createWriteStream(path, { flags: i === 0 ? 'w' : 'a' });
+          response.data.pipe(writer);
 
-      // 🎲 Random voice pick if user didn’t choose any
-      const availableVoices = Object.keys(characterVoices);
-      if (voice === "random") {
-        const randomKey = availableVoices[Math.floor(Math.random() * availableVoices.length)];
-        voice = randomKey;
-        message.reply(`🎲 Random voice selected: ${randomKey.toUpperCase()}`);
-      }
-
-      // 🟢 If predefined character
-      if (characterVoices[voice]) {
-        const v = characterVoices[voice];
-        audioUrl = `https://api.streamelements.com/kappa/v2/speech?voice=${v}&text=${encodeURIComponent(text)}`;
-      }
-
-      // 🟣 HuggingFace model option (hf:model-name)
-      else if (voice.startsWith("hf:")) {
-        const model = voice.replace("hf:", "");
-        const res = await axios.post(
-          `https://api-inference.huggingface.co/models/${model}`,
-          { inputs: text },
-          { headers: { "Accept": "audio/mpeg" }, responseType: "arraybuffer" }
-        );
-        if (res.status === 200) {
-          const buffer = Buffer.from(res.data, "binary");
-          return message.reply({ body: `🎙️ ${voice} says:`, attachment: buffer });
+          if (i === chunks.length - 1) {
+            writer.on("finish", () => {
+              message.reply({
+                body: text,
+                attachment: fs.createReadStream(path)
+              }, () => {
+                fs.remove(path);
+              });
+            });
+          }
         }
       }
-
-      // 🟡 Custom StreamElements voice (if user types any valid one)
-      else {
-        audioUrl = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`;
-      }
-
-      if (!audioUrl) return message.reply("❌ Voice generation failed.");
-
-      const audioStream = await global.utils.getStreamFromURL(audioUrl);
-      return message.reply({
-        body: `🎙️ ${voice.toUpperCase()} says:`,
-        attachment: audioStream,
-      });
     } catch (err) {
-      console.error("TTS Error:", err);
-      message.reply("❌ Failed to generate voice. Try another one.");
+      console.error(err);
+      message.reply("An error occurred while trying to convert your text to speech or send it as an attachment. Please try again later.");
     }
-  },
+  }
 };

@@ -1,29 +1,36 @@
-const tinyurl = require('tinyurl');
+const axios = require("axios");
 
 module.exports = {
-  config: {
-    name: "tinyurl",
-    version: "1.0",
-    author: "Kshitiz",
-    description: "Shorten URLs using TinyURL",
-    usage: "{p}tinyurl(replied).",
-    category: "Utility",
-    role: 0,
-  },
+	config: {
+		name: "tinyurl",
+		aliases: ["shorturl", "shorten"],
+		version: "1.0",
+		author: "frnAlt",
+		shortDescription: "Shorten URLs using TinyURL",
+		longDescription: "Shorten any URL or replied attachment link using TinyURL service.",
+		category: "utility",
+		role: 0,
+		guide: {
+			en: "{pn} <url> or reply to a link"
+		}
+	},
 
-  onStart: async function ({ message, event, api }) {
-    if (event.type !== "message_reply" || !event.messageReply.attachments || event.messageReply.attachments.length === 0) {
-      return api.sendMessage({ body: "❌ | Please reply to an attachment." }, event.threadID, event.messageID);
-    }
+	onStart: async function ({ api, event, args }) {
+		let targetUrl = args[0];
 
-    const attachment = event.messageReply.attachments[0];
+		if (!targetUrl && event.type === "message_reply" && event.messageReply?.attachments?.length > 0) {
+			targetUrl = event.messageReply.attachments[0].url;
+		}
 
-    try {
-      const shortUrl = await tinyurl.shorten(attachment.url);
-      api.sendMessage({ body: `${shortUrl}` }, event.threadID, event.messageID);
-    } catch (error) {
-      api.sendMessage({ body: "❌ | Error occurred while shortening URL." }, event.threadID, event.messageID);
-      console.error(error);
-    }
-  }
+		if (!targetUrl) {
+			return api.sendMessage("❌ Please provide a URL or reply to a link/attachment.", event.threadID, event.messageID);
+		}
+
+		try {
+			const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(targetUrl)}`);
+			api.sendMessage(`🔗 Shortened URL:\n${res.data}`, event.threadID, event.messageID);
+		} catch (error) {
+			api.sendMessage("❌ Error occurred while shortening URL.", event.threadID, event.messageID);
+		}
+	}
 };

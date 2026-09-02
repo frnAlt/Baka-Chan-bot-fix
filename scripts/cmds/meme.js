@@ -1,84 +1,47 @@
-const axios = require('axios');
-const fs = require('fs-extra');
+const axios = require("axios");
+
+const mahmud = async () => {
+  const base = await axios.get("https://raw.githubusercontent.com/mahmudx7/exe/main/baseApiUrl.json");
+  return base.data.mahmud;
+};
 
 module.exports = {
-    config: {
-        name: "meme",
-        version: "1.0",
-        author: "Farhan",
-        countDown: 5,
-        prefix: true,
-        adminOnly: false,
-        description: "Fetch memes from Bangladeshi Meme API",
-        category: "fun",
-        guide: {
-            en: "   {pn}: Get a random meme.\n   {pn} 10: Get 10 random memes.\n   {pn} <query>: Search memes by keyword (max 5)."
-        }
-    },
-
-    onStart: async ({ event, api, args }) => {
-        try {
-            const baseUrl = "https://bangladeshi-meme-api.vercel.app/api";
-            let endpoint, message;
-
-            if (args[0] === "10") {
-                endpoint = "/random10";
-                message = "Here are 10 random memes:";
-            } else if (args.length > 0) {
-                endpoint = `/search?query=${encodeURIComponent(args.join(" "))}`;
-                message = `Search results for "${args.join(" ")}":`;
-            } else {
-                endpoint = "/random1";
-                message = "Random meme:";
-            }
-
-            const response = await axios.get(`${baseUrl}${endpoint}`, { timeout: 15000 });
-            const data = response.data;
-
-            const cacheDir = './cache';
-            await fs.ensureDir(cacheDir);
-            const attachments = [];
-
-            if (endpoint === "/random1") {
-                const { id, title, image_url } = data;
-                const imagePath = `${cacheDir}/meme_${id}_${Date.now()}.png`;
-                const imageResponse = await axios.get(image_url, { responseType: 'arraybuffer', timeout: 15000 });
-                await fs.writeFile(imagePath, Buffer.from(imageResponse.data));
-                attachments.push(fs.createReadStream(imagePath));
-                await api.sendMessage({
-                    body: `${message}\nID: ${id}\nTitle: ${title}`,
-                    attachment: attachments
-                }, event.threadID, () => fs.unlinkSync(imagePath));
-            } else if (endpoint === "/random10") {
-                for (const meme of data) {
-                    const { id, image_url } = meme;
-                    const imagePath = `${cacheDir}/meme_${id}_${Date.now()}.png`;
-                    const imageResponse = await axios.get(image_url, { responseType: 'arraybuffer', timeout: 15000 });
-                    await fs.writeFile(imagePath, Buffer.from(imageResponse.data));
-                    attachments.push(fs.createReadStream(imagePath));
-                }
-                await api.sendMessage({
-                    body: `${message}`,
-                    attachment: attachments
-                }, event.threadID, () => attachments.forEach(stream => fs.unlinkSync(stream.path)));
-            } else {
-                for (const meme of data.slice(0, 5)) {
-                    const { id, image_url } = meme;
-                    const imagePath = `${cacheDir}/meme_${id}_${Date.now()}.png`;
-                    const imageResponse = await axios.get(image_url, { responseType: 'arraybuffer', timeout: 15000 });
-                    await fs.writeFile(imagePath, Buffer.from(imageResponse.data));
-                    attachments.push(fs.createReadStream(imagePath));
-                }
-                await api.sendMessage({
-                    body: `${message}`,
-                    attachment: attachments
-                }, event.threadID, () => attachments.forEach(stream => fs.unlinkSync(stream.path)));
-            }
-
-            log('info', `Meme command executed by ${event.senderID} in thread ${event.threadID}`);
-        } catch (error) {
-            log('error', `Meme command error: ${error.message || 'Unknown error'}`);
-            api.sendMessage('An error occurred while fetching memes. Please try again later.', event.threadID);
-        }
+  config: {
+    name: "meme",
+    aliases: ["memes"],
+    version: "1.7",
+    author: "frnAlt",
+    countDown: 10,
+    role: 0,
+    category: "fun",
+    guide: "{pn}"
+  },
+  
+  onStart: async function({ message, event, api }) {
+    try {
+      const apiUrl = await mahmud();
+      const res = await axios.get(`${apiUrl}/api/meme`);
+      const imageUrl = res.data?.imageUrl;
+      
+      if (!imageUrl) {
+        return message.reply("Could not fetch meme. Please try again later.");
+      }
+      
+      const stream = await axios({
+        method: "GET",
+        url: imageUrl,
+        responseType: "stream",
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      
+      await api.sendMessage({
+        body: "🐸 | 𝐇𝐞𝐫𝐞'𝐬 𝐲𝐨𝐮𝐫 𝐫𝐚𝐧𝐝𝐨𝐦 𝐦𝐞𝐦𝐞",
+        attachment: stream.data
+      }, event.threadID, event.messageID);
+      
+      return;
+    } catch (error) {
+      return message.reply("An error occurred while fetching meme.");
     }
+  }
 };

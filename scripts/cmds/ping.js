@@ -1,34 +1,27 @@
-module.exports.config = {
-  name: "ping",
-  version: "1.7",
-  hasPermssion: 0,
-  credits: "frnwot",
-  description: "Ping with progress bar and only numeric value",
-  commandCategory: "system",
-  usages: "ping",
-  cooldowns: 3,
-  aliases: ["latency","pong"]
-};
+module.exports = {
+  config: {
+    name: "ping",
+    aliases: ["pong"],
+    version: "2.0",
+    author: "frnAlt",
+    countDown: 2,
+    role: 0,
+    description: {
+      vi: "Kiểm tra độ trễ phản hồi của bot",
+      en: "Check bot response latency"
+    },
+    category: "utility",
+    guide: {
+      vi: "{pn}",
+      en: "{pn}"
+    }
+  },
 
-module.exports.run = async ({ api, event }) => {
-  const { threadID } = event;
-
-  const frames = [
-    "[████████░░░░░░░░] 70%",
-    "[█████████████░░░] 90%",
-    "[████████████████] 100%"
-  ];
-
-  let loading = await api.sendMessage(frames[0], threadID);
-
-  frames.forEach((frame, i) => {
-    setTimeout(() => {
-      api.editMessage(frame, loading.messageID);
-    }, i * 500);
-  });
-
-  setTimeout(() => {
-    const ping = Math.floor(Math.random() * 50) + 50; // realistic ping 50-100ms
-    api.editMessage(`${ping}ms`, loading.messageID);
-  }, frames.length * 500 + 200);
+  onStart: async function ({ message, event }) {
+    const startTime = Date.now();
+    message.reaction("🏓", event.messageID);
+    const sentMsg = await message.reply("🏓 Pinging...");
+    const latency = Date.now() - startTime;
+    await message.reply(`🏓 Pong! Response latency: ${latency}ms`);
+  }
 };

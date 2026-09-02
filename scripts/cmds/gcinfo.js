@@ -1,62 +1,91 @@
-const fs = require("fs");
-const request = require("request");
+module.exports = {
+  config: {
+    name: "gcinfo",
+    version: "1.4",
+    author: "Toshiro Editz",
+    role: 0,
+    shortDescription: "Stylish group info",
+    category: "box chat",
+    guide: "{pn}"
+  },
 
-module.exports.config = {
-  name: "gcinfo",
-  version: "1.1.0",
-  hasPermssion: 1,
-  credits: "Farhan",
-  description: "Shows detailed group information",
-  commandCategory: "box chat",
-  usages: "gcinfo",
-  cooldowns: 3,
-  dependencies: []
-};
+  onStart: async function ({ api, event, usersData }) {
+    const threadID = event.threadID;
 
-module.exports.run = async function({ api, event }) {
-  let threadInfo = await api.getThreadInfo(event.threadID);
-  let memberCount = threadInfo.participantIDs.length;
+    if (!event.isGroup)
+      return api.sendMessage("❌ | This command works only in groups.", threadID);
 
-  let males = 0, females = 0, unknown = 0;
-  for (let user of threadInfo.userInfo) {
-    if (user.gender === "MALE") males++;
-    else if (user.gender === "FEMALE") females++;
-    else unknown++;
+    try {
+      const info = await api.getThreadInfo(threadID);
+
+      const groupName = info.threadName || "Unnamed Group";
+      const members = info.participantIDs.length;
+      const admins = info.adminIDs.length;
+      const emoji = info.emoji || "🌐";
+      const approval = info.approvalMode ? "𝗢𝗡 ✅" : "𝗢𝗙𝗙 ❌";
+
+      let male = 0, female = 0, unknown = 0;
+
+      for (const uid of info.participantIDs) {
+        try {
+          const data = await usersData.get(uid);
+          const gender = data?.gender;
+
+          if (gender == 2 || gender == "MALE") male++;
+          else if (gender == 1 || gender == "FEMALE") female++;
+          else unknown++;
+        } catch {
+          unknown++;
+        }
+      }
+
+      // ✅ Admin Names
+      let adminNames = [];
+      for (const admin of info.adminIDs) {
+        try {
+          const name = await usersData.getName(admin.id);
+          adminNames.push(`👑 ${name}`);
+        } catch {
+          adminNames.push("👑 Unknown Admin");
+        }
+      }
+
+      // ✅ Group Picture
+      let attachment = null;
+      try {
+        const picURL = `https://graph.facebook.com/${threadID}/picture?width=512&height=512`;
+        attachment = await global.utils.getStreamFromURL(picURL);
+      } catch {}
+
+      const msg =
+`╭─❍ 「 𝗚𝗥𝗢𝗨𝗣 𝗜𝗡𝗙𝗢 」 ❍─╮
+│
+│ 🏷️ 𝗡𝗮𝗺𝗲 ➤ ${groupName}
+│ ${emoji} 𝗘𝗺𝗼𝗷𝗶 ➤ ${emoji}
+│
+│ 👥 𝗠𝗲𝗺𝗯𝗲𝗿𝘀 ➤ ${members}
+│ 🛡️ 𝗔𝗱𝗺𝗶𝗻𝘀 ➤ ${admins}
+│
+│ 👦 𝗠𝗮𝗹𝗲 ➤ ${male}
+│ 👧 𝗙𝗲𝗺𝗮𝗹𝗲 ➤ ${female}
+│ ❓ 𝗨𝗻𝗸𝗻𝗼𝘄𝗻 ➤ ${unknown}
+│
+│ ✅ 𝗔𝗽𝗽𝗿𝗼𝘃𝗮𝗹 ➤ ${approval}
+│
+├───────────────
+│ 👑 𝗔𝗗𝗠𝗜𝗡𝗦
+${adminNames.map(n => `│ ${n}`).join("\n")}
+│
+╰───────────────╯`;
+
+      api.sendMessage(
+        attachment ? { body: msg, attachment } : msg,
+        threadID
+      );
+
+    } catch (err) {
+      console.error("GCINFO ERROR:", err);
+      api.sendMessage("❌ | Failed to fetch group info.", threadID);
+    }
   }
-
-  let admins = threadInfo.adminIDs.length;
-  let messageCount = threadInfo.messageCount || 0;
-  let icon = threadInfo.emoji || "None";
-  let threadName = threadInfo.threadName || "Unnamed Group";
-  let threadID = threadInfo.threadID;
-  let approval = threadInfo.approvalMode ? "ON" : "OFF";
-
-  const callback = () => api.sendMessage(
-    {
-      body: 
-`─── Group Information ───
-• Name: ${threadName}
-• ID: ${threadID}
-• Approval Mode: ${approval}
-• Emoji: ${icon}
-
-─── Statistics ───
-• Total Members: ${memberCount}
-• Males: ${males}
-• Females: ${females}
-• Unknown: ${unknown}
-• Admins: ${admins}
-• Total Messages: ${messageCount}
-──────────────────────`,
-      attachment: fs.createReadStream(__dirname + "/cache/group.png")
-    },
-    event.threadID,
-    () => fs.unlinkSync(__dirname + "/cache/group.png"),
-    event.messageID
-  );
-
-  return request(encodeURI(threadInfo.imageSrc || "https://i.imgur.com/3Q4cYxC.png"))
-    .pipe(fs.createWriteStream(__dirname + "/cache/group.png"))
-    .on("close", () => callback());
 };
-        

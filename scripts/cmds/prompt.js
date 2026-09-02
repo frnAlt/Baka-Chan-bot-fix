@@ -1,60 +1,49 @@
 const axios = require("axios");
 
-const apiUrl = 'https://Mahi-apis.onrender.com/api/promot';
-
 module.exports = {
   config: {
     name: "prompt",
-    aliases: [],
     version: "1.0",
-    author: "Hopeless Magi",
-    countDown: 10,
+    author: "NeoKEX",
+    countDown: 5,
     role: 0,
-    shortDescription: "Generate a creative AI response from text or image",
-    longDescription: "Generate a creative AI response from either an image reply or a text prompt.",
-    category: "AI",
-    guide: {
-      en: "/prompt (reply to an image)\n/xlp [text prompt]",
-    },
+    shortDescription: { en: "Get prompt from image" },
+    longDescription: { en: "Extracts prompt from an image URL or replied image." },
+    category: "ai",
+    guide: { en: "{pn} [image url] or reply to an image" }
   },
 
-  onStart: async function({ api, args, message, event }) {
+  onStart: async function ({ message, args, event, api }) {
+    let imageUrl = args[0];
+    const { type, messageReply } = event;
+
+    if (type === "message_reply" && messageReply.attachments?.[0]?.type === "photo") {
+      imageUrl = messageReply.attachments[0].url;
+    }
+
+    if (!imageUrl) return message.reply("Please provide an image URL or reply to an image.");
+
     try {
-      message.reaction("🕜", event.messageID);
-
-      let imageUrl = null;
-      let promptText = null;
-
-      if (event.type === "message_reply" && event.messageReply && event.messageReply.attachments && event.messageReply.attachments.length > 0) {
-        if (["photo", "sticker"].includes(event.messageReply.attachments[0].type)) {
-          imageUrl = event.messageReply.attachments[0].url;
+      api.setMessageReaction("⏳", event.messageID);
+      
+      const res = await axios.get(`https://smfahim.xyz/ai/img2prompt/v3`, {
+        params: {
+          imageUrl: imageUrl,
+          language: "en",
+          model: "0"
         }
-      } else if (args[0]) {
-        promptText = args.join(" ");
-      }
-
-      const requestData = {
-        promptText: promptText || "",
-        imageURLs: imageUrl ? [imageUrl] : [],
-      };
-
-      const response = await axios.post(apiUrl, requestData, {
-        headers: { 'Content-Type': 'application/json' },
       });
 
-      if (response.data.result) {
-        const result = response.data.result;
-        message.reply(result);
-        await message.reaction("✅", event.messageID);
+      if (res.data.success && res.data.prompt) {
+        message.reply(res.data.prompt);
+        api.setMessageReaction("✅", event.messageID);
       } else {
-        message.reply("Failed to generate a prompt. Please try again later.");
-        await message.reaction("❌", event.messageID);
+        throw new Error();
       }
 
-    } catch (error) {
-      console.error("Error in /xlp command:", error);
-      message.reply("There was an error processing your request.");
-      await message.reaction("❌", event.messageID);
+    } catch (err) {
+      api.setMessageReaction("❌", event.messageID);
+      message.reply("Failed to extract prompt from this image.");
     }
-  },
+  }
 };

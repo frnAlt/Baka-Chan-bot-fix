@@ -1,92 +1,149 @@
-const axios = require('axios');
-const onStart = async ({ event, args, message }) => {
-		let type = 'audio',
-		query = args.join(" ").trim(),
-		quality = "240";
-	if (!query) {
-		return message.reply("❌ | Search query is required");
-	} 
-	if (query.startsWith('https://')) {
-	try {
-		message.reaction("⏳", event.messageID);
-		query = query.split(" ").find(x => x.startsWith('https://'));
-		const stream = await download(query, type, quality);
-		return message.reply({
-			body: `${stream.title}`,
-			attachment: await Stream(stream.downloadUrl, type)
-		});
-	} catch (e) { return message.reply("❌ | " + e.message);
-		}
-	}
-		message.reaction("⏳", event.messageID);
-		try {
-		const results = await search(query);
-	if (results.length == 0) { return message.reply("❌ | no videos found");
-	}
-		const {
-			id,
-			title
-		} = results[0]
-		const response = await download(id, type, quality);
-		message.reply({
-			body: `• ${title}`,
-			attachment: await Stream(response.downloadUrl, type)
-		});
-	} catch (e) {
-		message.reply("❌ | " + e.message);
-	}
-};
-async function download(id, type, quality = 480) {
-	const url = id.startsWith('https://') ? id : `https://youtube.com/watch?v=${id}`;
-	const res = await axios.get(`https://tawsif.is-a.dev/downloader/youtube?url=${encodeURIComponent(url)}&type=${type == "audio" ? "audio" : "video"}&quality=${quality}`);
-	if (!res?.data?.success) {
-		throw "An error occurred"
-	}
-	return {
-		downloadUrl: res.data.downloadUrl,
-		title: res.data.title
-	}
-};
-async function search(keyWord) {
-	try {
-		const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(keyWord)}`;
-		const res = await axios.get(url);
-		const getJson = JSON.parse(res.data.split("ytInitialData = ")[1].split(";</script>")[0]);
-		const videos = getJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents;
-		const results = [];
-		for (const video of videos)
-			if (video.videoRenderer?.lengthText?.simpleText) // check is video, not playlist or channel or live
-				results.push({
-					id: video.videoRenderer.videoId,
-					title: video.videoRenderer.title.runs[0].text,
-					thumbnail: video.videoRenderer.thumbnail.thumbnails.pop().url,
-					time: video.videoRenderer.lengthText.simpleText,
-					author: video.videoRenderer.ownerText.runs[0].text,
-				});
-		return results;
-	} catch (e) {
-		const error = new Error("Cannot search video");
-		error.code = "SEARCH_VIDEO_ERROR";
-		throw error;
-	}
-};
-async function Stream(url, type) {
-	return await global.utils.getStreamFromURL(url, `stream.${type == 'audio' ? 'mp3' : 'mp4'}`)
-};
-const config = {
-	name: "sing",
-	author: "Tawsif~",
-	role: 0,
-	category: "media",
-	countDown: 5,
-	shortDescription: {
-		en: "download youtube audio"
-	},
-	guide: {
-		en: "sing [search query]"
-	}
-};
+const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
+
+const BASE_URL = "https://play.nkx.lol";
+const MAX_ATTACHMENT_BYTES = 26214400;
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const REQUEST_HEADERS = { "User-Agent": BROWSER_UA };
+
+function resolveUrl(uri, baseUrl) {
+  try {
+    return new URL(uri, baseUrl).href;
+  } catch (e) {
+    return uri;
+  }
+}
+
+function parseMediaPlaylist(text, baseUrl) {
+  let initUrl = null;
+  const segments = [];
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith("#EXT-X-MAP:")) {
+      const m = line.match(/URI="([^"]+)"/);
+      if (m) initUrl = resolveUrl(m[1], baseUrl);
+    } else if (!line.startsWith("#")) {
+      segments.push(resolveUrl(line, baseUrl));
+    }
+  }
+
+  return { initUrl, segments };
+}
+async function fetchAndParsePlaylist(url) {
+  const res = await axios.get(url, { headers: REQUEST_HEADERS, timeout: 20000, responseType: "text" });
+  const text = typeof res.data === "string" ? res.data : String(res.data);
+
+  if (text.includes("#EXT-X-STREAM-INF")) {
+    const variantLine = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l && !l.startsWith("#"));
+    if (!variantLine) throw new Error("Master playlist had no variant stream.");
+    return fetchAndParsePlaylist(resolveUrl(variantLine, url));
+  }
+
+  return parseMediaPlaylist(text, url);
+}
+
+async function downloadHlsAudio(streamUrl) {
+  const { initUrl, segments } = await fetchAndParsePlaylist(streamUrl);
+  if (segments.length === 0) throw new Error("No segments were found in the HLS playlist.");
+
+  const buffers = [];
+  let totalBytes = 0;
+
+  if (initUrl) {
+    const initRes = await axios.get(initUrl, { headers: REQUEST_HEADERS, responseType: "arraybuffer", timeout: 20000 });
+    buffers.push(Buffer.from(initRes.data));
+    totalBytes += initRes.data.byteLength;
+  }
+
+  for (const segUrl of segments) {
+    const segRes = await axios.get(segUrl, { headers: REQUEST_HEADERS, responseType: "arraybuffer", timeout: 20000 });
+    totalBytes += segRes.data.byteLength;
+    if (totalBytes > MAX_ATTACHMENT_BYTES) {
+      throw new Error("Audio stream exceeds Messenger's 25MB limit.");
+    }
+    buffers.push(Buffer.from(segRes.data));
+  }
+
+  return { buffer: Buffer.concat(buffers), isFragmentedMp4: !!initUrl };
+}
+
 module.exports = {
-	config,
-	onStart
+  config: {
+    name: "sing",
+    aliases: ["song", "music"],
+    version: "1.1",
+    author: "Neoaz 🐊",
+    countDown: 5,
+    role: 0,
+    shortDescription: { en: "Search and download a song" },
+    longDescription: { en: "Search and download the top matching song automatically." },
+    category: "media",
+    guide: { en: "{pn} <song name>" }
+  },
+
+  onStart: async function ({ message, args, event, api }) {
+    const query = args.join(" ");
+    if (!query) return message.reply("Please provide a song name.");
+
+    api.setMessageReaction("⏳", event.messageID);
+
+    try {
+      const searchRes = await axios.get(`${BASE_URL}/search`, {
+        params: { q: query, limit: 1 },
+        timeout: 25000,
+        validateStatus: () => true
+      });
+
+      if (searchRes.status >= 400) {
+        api.setMessageReaction("❌", event.messageID);
+        return message.reply(`Search failed (status ${searchRes.status}).`);
+      }
+
+      const results = searchRes.data?.results;
+      if (!Array.isArray(results) || results.length === 0) {
+        api.setMessageReaction("❌", event.messageID);
+        return message.reply("No songs found for your query.");
+      }
+
+      const selected = results[0];
+      const streamUrl = selected.audio_cdn_url;
+      const title = selected.title || query;
+
+      if (!streamUrl) {
+        api.setMessageReaction("❌", event.messageID);
+        return message.reply("No playable stream was found for that result.");
+      }
+
+      const { buffer, isFragmentedMp4 } = await downloadHlsAudio(streamUrl);
+      if (buffer.length === 0) {
+        api.setMessageReaction("❌", event.messageID);
+        return message.reply("The downloaded audio was empty.");
+      }
+
+      const cacheDir = path.join(__dirname, "cache");
+      await fs.ensureDir(cacheDir);
+      const ext = isFragmentedMp4 ? "m4a" : "aac";
+      const filePath = path.join(cacheDir, `${Date.now()}.${ext}`);
+      await fs.writeFile(filePath, buffer);
+
+      await message.reply({
+        body: title,
+        attachment: fs.createReadStream(filePath)
+      });
+
+      api.setMessageReaction("✅", event.messageID);
+      fs.remove(filePath).catch(() => {});
+    } catch (e) {
+      console.error("[SING COMMAND ERROR]:", e?.response?.data || e.message || e);
+      api.setMessageReaction("❌", event.messageID);
+      message.reply("An error occurred while processing the download.");
+    }
+  }
 };

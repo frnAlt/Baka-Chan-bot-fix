@@ -4,7 +4,7 @@
 <%~ includeFile("partials/message.eta"); %>
 <%~ includeFile("partials/title.eta", {
 	icon: "fas fa-cog",
-	title: "Baka-Chan Dashboard"
+	title: "Dashboard"
 }); %>
 
 <style>
@@ -15,7 +15,7 @@
 
 <div class="container">
 
-  <h3>Managed Groups - Baka-Chan V2 ✨</h3>
+  <h3>Danh sách nhóm mà bạn quản lý</h3>
 
   <div class="d-sm-flex d-block align-items-center my-3">
     <div class="search-box me-2">

@@ -1,4 +1,4 @@
-import axios from "axios";
+const axios = require("axios");
 
 const config = {
   name: "Guess-country",
@@ -46,7 +46,7 @@ async function onCall({ message, args }) {
   }
 }
 
-export default {
+module.exports = {
   config,
   onCall
 };

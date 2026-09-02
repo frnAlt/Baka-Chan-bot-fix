@@ -1,27 +1,16 @@
-module.exports = {
-  config: {
-    name: "getlink",
-    version: "1.0",
-    author: "AceGun",
-    countDown: 5,
-    role: 0,
-    shortDescription: "",
-    longDescription: {
-      en: ".",
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.default = defineCommand({
+    meta: {
+        name: "getlink",
+        description: "Resolves FB Attachment URL",
+        category: "Thread",
+        version: "1.0.0",
+        icon: "🔗",
     },
-    category: "media",
-    guide: {
-      en: "{prefix} <reply with img or vid>",
+    async entry({ output, input }) {
+        return output.reply(input.replier && input.replier?.attachmentUrls.length > 0
+            ? input.replier.attachmentUrls.join("\n\n")
+            : "❌");
     },
-  },
-
-  onStart: async function ({ api, event, getText }) {
-    const { messageReply } = event;
-
-    if (event.type !== "message_reply" || !messageReply.attachments || messageReply.attachments.length !== 1) {
-      return api.sendMessage(getText("invalidFormat"), event.threadID, event.messageID);
-    }
-
-    return api.sendMessage(messageReply.attachments[0].url, event.threadID, event.messageID);
-  }
-};
+});

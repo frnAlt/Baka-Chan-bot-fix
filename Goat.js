@@ -1,24 +1,29 @@
 /**
- * @author NTKhang
- * ! The source code is written by NTKhang, please don't change the author's name everywhere. Thank you for using
- * ! Official source code: https://github.com/ntkhang03/Goat-Bot-V2
- * ! If you do not download the source code from the above address, you are using an unknown version and at risk of having your account hacked
- *
- * English:
- * ! Please do not change the below code, it is very important for the project.
- * It is my motivation to maintain and develop the project for free.
- * ! If you change it, you will be banned forever
- * Thank you for using
- *
- * Vietnamese:
- * ! Vui lòng không thay đổi mã bên dưới, nó rất quan trọng đối với dự án.
- * Nó là động lực để tôi duy trì và phát triển dự án miễn phí.
- * ! Nếu thay đổi nó, bạn sẽ bị cấm vĩnh viễn
- * Cảm ơn bạn đã sử dụng
+ * @title Baka-Chan Bot V2 Core Engine
+ * @author Gtajisan aka Farhan (frnAlt)
+ * @description Powered by GoatBot-V2 Engine (by NTKhang & NeoKEX) and Floppa Core Subsystems
  */
 
-process.on('unhandledRejection', error => console.log(error));
-process.on('uncaughtException', error => console.log(error));
+// Initialize Universal Module Resolver and Extensions
+try {
+	require("./func/moduleResolver.js");
+} catch (e) {
+	// moduleResolver loaded on fallback
+}
+
+process.on('unhandledRejection', (error, promise) => {
+	const log = require('./logger/log.js');
+	log.error('UNHANDLED_REJECTION', error?.message || error);
+	// Avoid memory leak by not storing promises
+});
+
+process.on('uncaughtException', (error) => {
+	const log = require('./logger/log.js');
+	log.error('UNCAUGHT_EXCEPTION', error?.message || error);
+	if (error?.stack) log.error('UNCAUGHT_EXCEPTION', error.stack);
+	// Allow logs to flush before exiting
+	setTimeout(() => process.exit(1), 1000);
+});
 
 const axios = require("axios");
 const fs = require("fs-extra");
@@ -26,7 +31,9 @@ const { execSync } = require('child_process');
 const log = require('./logger/log.js');
 const path = require("path");
 
-process.env.BLUEBIRD_W_FORGOTTEN_RETURN = 0; // Disable warning: "Warning: a promise was created in a handler but was not returned from it"
+const TTLMap = require("./func/TTLMap.js");
+
+process.env.BLUEBIRD_W_FORGOTTEN_RETURN = 0; // Disable Bluebird promise return warning
 
 function validJSON(pathDir) {
 	try {
@@ -44,10 +51,9 @@ function validJSON(pathDir) {
 	}
 }
 
-const { NODE_ENV } = process.env;
-const dirConfig = path.normalize(`${__dirname}/config${['production', 'development'].includes(NODE_ENV) ? '.dev.json' : '.json'}`);
-const dirConfigCommands = path.normalize(`${__dirname}/configCommands${['production', 'development'].includes(NODE_ENV) ? '.dev.json' : '.json'}`);
-const dirAccount = path.normalize(`${__dirname}/account${['production', 'development'].includes(NODE_ENV) ? '.dev.txt' : '.txt'}`);
+const dirConfig = path.normalize(`${__dirname}/config.json`);
+const dirConfigCommands = path.normalize(`${__dirname}/configCommands.json`);
+const dirAccount = path.normalize(`${__dirname}/account.txt`);
 
 for (const pathDir of [dirConfig, dirConfigCommands]) {
 	try {
@@ -67,28 +73,32 @@ global.GoatBot = {
 	startTime: Date.now() - process.uptime() * 1000, // time start bot (ms)
 	commands: new Map(), // store all commands
 	eventCommands: new Map(), // store all event commands
-	commandFilesPath: [], // [{ filePath: "", commandName: [] }
-	eventCommandsFilesPath: [], // [{ filePath: "", commandName: [] }
+	commandFilesPath: [], // [{ filePath: "", commandName: [] }]
+	eventCommandsFilesPath: [], // [{ filePath: "", commandName: [] }]
 	aliases: new Map(), // store all aliases
-	onFirstChat: [], // store all onFirstChat [{ commandName: "", threadIDsChattedFirstTime: [] }}]
+	onFirstChat: new Set(), // store threadIDs that have been first chatted
+	onFirstChatCommands: [], // store command names that use onFirstChat
 	onChat: [], // store all onChat
 	onEvent: [], // store all onEvent
-	onReply: new Map(), // store all onReply
-	onReaction: new Map(), // store all onReaction
+	onReply: new TTLMap({ ttl: 30 * 60 * 1000, maxSize: 500, cleanupInterval: 60000 }), // 30 min TTL, max 500 entries
+	onReaction: new TTLMap({ ttl: 30 * 60 * 1000, maxSize: 500, cleanupInterval: 60000 }), // 30 min TTL, max 500 entries
 	onAnyEvent: [], // store all onAnyEvent
 	config, // store config
 	configCommands, // store config commands
 	envCommands: {}, // store env commands
 	envEvents: {}, // store env events
 	envGlobal: {}, // store env global
-	reLoginBot: function () { }, // function relogin bot, will be set in bot/login/login.js
+	reLoginBot: function () { }, // function relogin bot, set in bot/login/login.js
 	Listening: null, // store current listening handle
 	oldListening: [], // store old listening handle
 	callbackListenTime: {}, // store callback listen 
-	storage5Message: [], // store 5 message to check listening loop
+	storage5Message: [], // store 5 messages to check listening loop
 	fcaApi: null, // store fca api
 	botID: null // store bot id
 };
+
+global.FloppaBot = global.GoatBot;
+global.Cassidy = global.GoatBot;
 
 global.db = {
 	// all data
@@ -110,8 +120,6 @@ global.db = {
 	globalData: null,
 
 	receivedTheFirstMessage: {}
-
-	// all will be set in bot/login/loadData.js
 };
 
 global.client = {
@@ -126,25 +134,29 @@ global.client = {
 		creatingDashBoardData: [],
 		creatingGlobalData: []
 	},
-	commandBanned: configCommands.commandBanned
+	commandBanned: configCommands.commandBanned || {}
 };
 
 const utils = require("./utils.js");
 global.utils = utils;
 const { colors } = utils;
+const shutdownManager = require("./func/gracefulShutdown.js");
 
+// Initialize global.temp with size-limited data structures
 global.temp = {
 	createThreadData: [],
 	createUserData: [],
-	createThreadDataError: [], // Can't get info of groups with instagram members
-	filesOfGoogleDrive: {
-		arraybuffer: {},
-		stream: {},
-		fileNames: {}
-	},
+	createThreadDataError: new Map(), // threadID -> timestamp; auto-expires after 5 min
 	contentScripts: {
 		cmds: {},
 		events: {}
+	},
+	// Helper to limit array sizes
+	_addWithLimit(arr, item, maxSize = 1000) {
+		arr.push(item);
+		if (arr.length > maxSize) {
+			arr.splice(0, arr.length - maxSize);
+		}
 	}
 };
 
@@ -160,12 +172,10 @@ const watchAndReloadConfig = (dir, type, prop, logName) => {
 			// wait 200ms to reload config
 			setTimeout(() => {
 				try {
-					// if file change first time (when start bot, maybe you know it's called when start bot?) => not reload
 					if (isFirstModified) {
 						isFirstModified = false;
 						return;
 					}
-					// if file not change => not reload
 					if (lastModified === fs.statSync(dir).mtimeMs) {
 						return;
 					}
@@ -177,7 +187,11 @@ const watchAndReloadConfig = (dir, type, prop, logName) => {
 					global.GoatBot[prop] = oldConfig;
 				}
 				finally {
-					lastModified = fs.statSync(dir).mtimeMs;
+					try {
+						lastModified = fs.statSync(dir).mtimeMs;
+					} catch (e) {
+						// file temporarily inaccessible
+					}
 				}
 			}, 200);
 		}
@@ -187,12 +201,150 @@ const watchAndReloadConfig = (dir, type, prop, logName) => {
 watchAndReloadConfig(dirConfigCommands, 'change', 'configCommands', 'CONFIG COMMANDS');
 watchAndReloadConfig(dirConfig, 'change', 'config', 'CONFIG');
 
-global.GoatBot.envGlobal = global.GoatBot.configCommands.envGlobal;
-global.GoatBot.envCommands = global.GoatBot.configCommands.envCommands;
-global.GoatBot.envEvents = global.GoatBot.configCommands.envEvents;
+global.GoatBot.envGlobal = global.GoatBot.configCommands.envGlobal || {};
+global.GoatBot.envCommands = global.GoatBot.configCommands.envCommands || {};
+global.GoatBot.envEvents = global.GoatBot.configCommands.envEvents || {};
 
 // ———————————————— LOAD LANGUAGE ———————————————— //
 const getText = global.utils.getText;
+
+/**
+ * MemoryManager - Monitors and manages memory to prevent leaks and ensure 24/7 long-term stability
+ */
+class MemoryManager {
+	constructor(options = {}) {
+		this.options = {
+			checkInterval: options.checkInterval || 3 * 60 * 1000, // 3 minutes
+			heapThreshold: options.heapThreshold || 350 * 1024 * 1024, // 350MB heap threshold
+			maxOldListening: options.maxOldListening || 10,
+			maxCallbackListenTime: options.maxCallbackListenTime || 100,
+			maxOnFirstChatSize: options.maxOnFirstChatSize || 10000,
+			...options
+		};
+
+		this.stats = {
+			cleanups: 0,
+			lastHeapUsed: 0,
+			peakHeapUsed: 0
+		};
+
+		this._startMonitoring();
+	}
+
+	_startMonitoring() {
+		setInterval(() => this._checkMemory(), this.options.checkInterval);
+	}
+
+	_checkMemory() {
+		const memUsage = process.memoryUsage();
+		this.stats.lastHeapUsed = memUsage.heapUsed;
+		this.stats.peakHeapUsed = Math.max(this.stats.peakHeapUsed, memUsage.heapUsed);
+
+		// Cleanup if heap exceeds threshold
+		if (memUsage.heapUsed > this.options.heapThreshold) {
+			this._performCleanup();
+		}
+
+		// Always do light cleanup
+		this._lightCleanup();
+	}
+
+	_performCleanup() {
+		const { GoatBot } = global;
+		let cleaned = 0;
+
+		// Cleanup old listening handles
+		if (GoatBot.oldListening.length > this.options.maxOldListening) {
+			const toRemove = GoatBot.oldListening.length - this.options.maxOldListening;
+			for (let i = 0; i < toRemove; i++) {
+				const handle = GoatBot.oldListening.shift();
+				if (handle && typeof handle.stop === 'function') {
+					try { handle.stop(); } catch (e) {}
+				}
+			}
+			cleaned += toRemove;
+		}
+
+		// Cleanup callbackListenTime
+		const callbackEntries = Object.keys(GoatBot.callbackListenTime);
+		if (callbackEntries.length > this.options.maxCallbackListenTime) {
+			const sorted = callbackEntries
+				.map(key => ({ key, time: GoatBot.callbackListenTime[key] }))
+				.sort((a, b) => a.time - b.time);
+
+			const toRemove = sorted.length - this.options.maxCallbackListenTime;
+			for (let i = 0; i < toRemove; i++) {
+				delete GoatBot.callbackListenTime[sorted[i].key];
+			}
+			cleaned += toRemove;
+		}
+
+		// Cleanup onFirstChat if too large
+		if (GoatBot.onFirstChat.size > this.options.maxOnFirstChatSize) {
+			const entries = Array.from(GoatBot.onFirstChat);
+			const toRemove = entries.slice(0, entries.length - this.options.maxOnFirstChatSize);
+			toRemove.forEach(id => GoatBot.onFirstChat.delete(id));
+			cleaned += toRemove.length;
+		}
+
+		// Clear expired premium users cache
+		if (global.temp?.expiredPremiumUsers?.length > 1000) {
+			global.temp.expiredPremiumUsers.splice(0, global.temp.expiredPremiumUsers.length - 1000);
+			cleaned++;
+		}
+
+		// Cleanup receivedTheFirstMessage - cap at 5000 entries
+		const rfm = global.db?.receivedTheFirstMessage;
+		if (rfm) {
+			const keys = Object.keys(rfm);
+			if (keys.length > 5000) {
+				const toDelete = Math.floor(keys.length * 0.2);
+				for (let i = 0; i < toDelete; i++) delete rfm[keys[i]];
+				cleaned += toDelete;
+			}
+		}
+
+		// Force garbage collection if available
+		if (global.gc && memUsage.heapUsed > this.options.heapThreshold * 1.5) {
+			global.gc();
+			cleaned++;
+		}
+
+		if (cleaned > 0) {
+			this.stats.cleanups++;
+			log.info('MEMORY', `Cleaned ${cleaned} items, heap: ${(memUsage.heapUsed / 1024 / 1024).toFixed(2)}MB`);
+		}
+	}
+
+	_lightCleanup() {
+		if (global.client?.cache) {
+			const cache = global.client.cache;
+			const now = Date.now();
+			for (const [key, value] of Object.entries(cache)) {
+				if (value?._timestamp && now - value._timestamp > 3600000) {
+					delete cache[key];
+				}
+			}
+		}
+	}
+
+	getStats() {
+		const memUsage = process.memoryUsage();
+		return {
+			...this.stats,
+			heapUsed: memUsage.heapUsed,
+			heapTotal: memUsage.heapTotal,
+			rss: memUsage.rss,
+			external: memUsage.external,
+			heapUsedMB: (memUsage.heapUsed / 1024 / 1024).toFixed(2),
+			heapTotalMB: (memUsage.heapTotal / 1024 / 1024).toFixed(2),
+			rssMB: (memUsage.rss / 1024 / 1024).toFixed(2)
+		};
+	}
+}
+
+// Initialize memory manager
+const memoryManager = new MemoryManager();
 
 // ———————————————— AUTO RESTART ———————————————— //
 if (config.autoRestart) {
@@ -214,35 +366,23 @@ if (config.autoRestart) {
 	}
 }
 
-
+(async () => {
 	// ———————————————— CHECK VERSION ———————————————— //
-	axios.get("https://raw.githubusercontent.com/ntkhang03/Goat-Bot-V2/main/package.json")
-		.then(({ data: { version } }) => {
-			const currentVersion = require("./package.json").version;
-			if (compareVersion(version, currentVersion) === 1)
-				utils.log.master("NEW VERSION", getText(
-					"Goat",
-					"newVersionDetected",
-					colors.gray(currentVersion),
-					colors.hex("#eb6a07", version),
-					colors.hex("#eb6a07", "node update")
-				));
-			// ———————————————————— LOGIN ———————————————————— //
-			require(`./bot/login/login${NODE_ENV === 'development' ? '.dev.js' : '.js'}`);
-		})
-		.catch((err) => {
-			utils.log.warn("VERSION CHECK", "Failed to fetch latest version info.");
-			require(`./bot/login/login${NODE_ENV === 'development' ? '.dev.js' : '.js'}`);
-		});
-
-function compareVersion(version1, version2) {
-	const v1 = version1.split(".");
-	const v2 = version2.split(".");
-	for (let i = 0; i < 3; i++) {
-		if (parseInt(v1[i]) > parseInt(v2[i]))
-			return 1; // version1 > version2
-		if (parseInt(v1[i]) < parseInt(v2[i]))
-			return -1; // version1 < version2
+	try {
+		const { data: { version } } = await axios.get("https://raw.githubusercontent.com/ntkhang03/Goat-Bot-V2/main/package.json", { timeout: 10000 });
+		const currentVersion = require("./package.json").version;
+		if (utils.compareVersion(version, currentVersion) === 1)
+			utils.log.master("NEW VERSION", getText(
+				"Goat",
+				"newVersionDetected",
+				colors.gray(currentVersion),
+				colors.hex("#eb6a07", version),
+				colors.hex("#eb6a07", "node update")
+			));
+	} catch (err) {
+		log.warn("VERSION CHECK", `Skipped — could not reach upstream: ${err.message}`);
 	}
-	return 0; // version1 = version2
-}
+	// ———————————————————— LOGIN ———————————————————— //
+	require('./bot/login/login.js');
+})();
+
