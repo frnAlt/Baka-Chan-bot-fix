@@ -2,13 +2,11 @@ const axios = require("axios");
 const fs = require("fs-extra");
 const path = require("path");
 
-const BASE_URL = "https://downloader.nkx.lol";
-
 module.exports = {
   config: {
     name: "ytb",
-    version: "2.0",
-    author: "Neoaz 🐊",
+    version: "1.1",
+    author: "frnAlt",
     countDown: 5,
     role: 0,
     shortDescription: { en: "YouTube downloader" },
@@ -25,11 +23,9 @@ module.exports = {
     }
 
     try {
-      const res = await axios.get(`${BASE_URL}/api/search/youtube`, {
-        params: { q: query, limit: 6 }
-      });
+      const res = await axios.get(`https://neokex-dlapis.vercel.app/api/search?q=${encodeURIComponent(query)}`);
+      const results = res.data.results.slice(0, 6);
 
-      const results = res.data?.results || [];
       if (results.length === 0) return message.reply("No results found.");
 
       let msg = "";
@@ -38,7 +34,7 @@ module.exports = {
       await fs.ensureDir(cacheDir);
 
       for (let i = 0; i < results.length; i++) {
-        msg += `${i + 1}. ${results[i].title}\n[${results[i].duration?.timestamp || results[i].timestamp}]\n\n`;
+        msg += `${i + 1}. ${results[i].title}\n[${results[i].duration}]\n\n`;
         const imgPath = path.join(cacheDir, `yt_${Date.now()}_${i}.jpg`);
         const imgRes = await axios.get(results[i].thumbnail, { responseType: "arraybuffer" });
         await fs.writeFile(imgPath, Buffer.from(imgRes.data));
@@ -68,34 +64,30 @@ module.exports = {
     api.setMessageReaction("⏳", event.messageID);
 
     try {
-      const dlRes = await axios.get(`${BASE_URL}/api/download/youtube`, {
-        params: { url: selected.url },
-        validateStatus: () => true
-      });
+      const dlRes = await axios.get(`https://neokex-dlapis.vercel.app/api/alldl?url=${encodeURIComponent(selected.url)}`);
+      const pollUrl = dlRes.data[Reply.downloadType].downloadUrl;
 
-      if (!dlRes.data?.success) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply(dlRes.data?.message || "Download error.");
+      let streamUrl = null;
+      for (let i = 0; i < 60; i++) { // Max 60 seconds
+        const statusRes = await axios.get(pollUrl);
+        if (statusRes.data.status === "completed") {
+          streamUrl = statusRes.data.viewUrl;
+          break;
+        }
+        await new Promise(r => setTimeout(r, 1000)); // ১ সেকেন্ড পর পর চেক
       }
 
-      const info = dlRes.data.data;
-      const streamUrl = Reply.downloadType === "audio" ? info.mp3 : info.mp4;
-
-      if (!streamUrl) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("Unable to retrieve download link.");
-      }
+      if (!streamUrl) throw new Error("Processing timeout.");
 
       const cacheDir = path.join(__dirname, "cache");
-      await fs.ensureDir(cacheDir);
       const ext = Reply.downloadType === "audio" ? "mp3" : "mp4";
       const filePath = path.join(cacheDir, `${Date.now()}.${ext}`);
-
+      
       const fileRes = await axios.get(streamUrl, { responseType: "arraybuffer" });
       await fs.writeFile(filePath, Buffer.from(fileRes.data));
 
       await message.reply({
-        body: info.title || selected.title,
+        body: selected.title,
         attachment: fs.createReadStream(filePath)
       });
 

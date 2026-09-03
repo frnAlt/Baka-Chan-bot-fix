@@ -1,11 +1,10 @@
 const fs = require("fs-extra");
-const { sequelize } = global.db;
 
 module.exports = {
 	config: {
 		name: "jsontosqlite",
 		version: "1.4",
-		author: "NTKhang",
+		author: "frnAlt",
 		countDown: 5,
 		role: 2,
 		description: {
@@ -86,6 +85,7 @@ async function syncThreadData(message, threadModel, getLang) {
 		return message.reply(getLang("formatInvalid"));
 	}
 
+	const { sequelize } = global.db || {};
 	try {
 		await sequelize.transaction(async (transaction) => {
 			for (const thread of oldThreadsData) {
@@ -124,6 +124,7 @@ async function syncUserData(message, userModel, getLang) {
 		return message.reply(getLang("formatInvalid"));
 	}
 
+	const { sequelize } = global.db || {};
 	try {
 		await sequelize.transaction(async (transaction) => {
 			for (const user of oldUsersData) {
@@ -162,6 +163,7 @@ async function syncDashBoardData(message, dashBoardModel, getLang) {
 		return message.reply(getLang("formatInvalid"));
 	}
 
+	const { sequelize } = global.db || {};
 	try {
 		await sequelize.transaction(async (transaction) => {
 			for (const dashboard of oldDashBoardData) {
@@ -200,6 +202,7 @@ async function syncGlobalData(message, globalModel, getLang) {
 		return message.reply(getLang("formatInvalid"));
 	}
 
+	const { sequelize } = global.db || {};
 	try {
 		await sequelize.transaction(async (transaction) => {
 			for (const global_ of oldGlobalData) {

@@ -1,12 +1,12 @@
-const deltaNext = global.GoatBot.configCommands.envCommands.rank.deltaNext;
-const expToLevel = exp => Math.floor((1 + Math.sqrt(1 + 8 * exp / deltaNext)) / 2);
+const getDeltaNext = () => global.GoatBot?.configCommands?.envCommands?.rank?.deltaNext || 5;
+const expToLevel = exp => Math.floor((1 + Math.sqrt(1 + 8 * exp / getDeltaNext())) / 2);
 const { drive } = global.utils;
 
 module.exports = {
 	config: {
 		name: "rankup",
 		version: "1.4",
-		author: "NTKhang",
+		author: "frnAlt",
 		countDown: 5,
 		role: 0,
 		description: {
@@ -30,10 +30,10 @@ module.exports = {
 			notiMessage: "★★ chúc mừng bạn đạt level %1"
 		},
 		en: {
-			syntaxError: "Please use either {pn} on or {pn} off.",
-			turnedOn: "Level-up notifications are now enabled.",
-			turnedOff: "Level-up notifications are now disabled.",
-			notiMessage: "★★ Congratulations! You reached level %1"
+			syntaxError: "Syntax error, only use {pn} on or {pn} off",
+			turnedOn: "Turned on level up notification",
+			turnedOff: "Turned off level up notification",
+			notiMessage: "★★ Congratulations on reaching level %1"
 		}
 	},
 
@@ -46,7 +46,7 @@ module.exports = {
 
 	onChat: async function ({ threadsData, usersData, event, message, getLang }) {
 		const threadData = await threadsData.get(event.threadID);
-		const sendRankupMessage = !!threadData?.settings?.sendRankupMessage;
+		const sendRankupMessage = threadData.settings.sendRankupMessage;
 		if (!sendRankupMessage)
 			return;
 		const { exp } = await usersData.get(event.senderID);

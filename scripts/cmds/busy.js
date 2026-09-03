@@ -1,11 +1,11 @@
-if (!global.client.busyList)
-	global.client.busyList = {};
+if (!global.client) global.client = {};
+if (!global.client.busyList) global.client.busyList = {};
 
 module.exports = {
 	config: {
 		name: "busy",
 		version: "1.6",
-		author: "NTKhang",
+		author: "frnAlt",
 		countDown: 5,
 		role: 0,
 		description: {

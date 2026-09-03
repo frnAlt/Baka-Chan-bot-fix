@@ -27,7 +27,11 @@ module.exports = (api, threadModel, userModel, dashBoardModel, globalModel, user
 
                         const message = createFuncMessage(api, event);
 
-                        await handlerCheckDB(usersData, threadsData, event);
+                        try {
+                                await handlerCheckDB(usersData, threadsData, event);
+                        } catch (dbErr) {
+                                log.err('HANDLER_DB', 'Error checking DB:', dbErr.message || dbErr);
+                        }
                         const handlerChat = await handlerEvents(event, message);
                         if (!handlerChat)
                                 return;

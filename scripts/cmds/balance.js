@@ -1,4 +1,10 @@
-const { createCanvas, loadImage, registerFont } = require('canvas');
+let createCanvas, loadImage, registerFont;
+try {
+    const canvas = require('canvas');
+    createCanvas = canvas.createCanvas;
+    loadImage = canvas.loadImage;
+    registerFont = canvas.registerFont;
+} catch (e) {}
 const fs = require('fs-extra');
 const path = require('path');
 const axios = require('axios');
@@ -7,23 +13,20 @@ const fontDir = path.join(__dirname, 'assets', 'font');
 const cacheDir = path.join(__dirname, 'cache');
 
 try {
-    if (fs.existsSync(path.join(fontDir, 'NotoSans-Bold.ttf'))) {
+    if (registerFont && fs.existsSync(path.join(fontDir, 'NotoSans-Bold.ttf'))) {
         registerFont(path.join(fontDir, 'NotoSans-Bold.ttf'), { family: 'NotoSans', weight: 'bold' });
     }
-    if (fs.existsSync(path.join(fontDir, 'NotoSans-SemiBold.ttf'))) {
-        registerFont(path.join(fontDir, 'NotoSans-SemiBold.ttf'), { family: 'NotoSans', weight: '600' });
-    }
-    if (fs.existsSync(path.join(fontDir, 'NotoSans-Regular.ttf'))) {
+    if (registerFont && fs.existsSync(path.join(fontDir, 'NotoSans-Regular.ttf'))) {
         registerFont(path.join(fontDir, 'NotoSans-Regular.ttf'), { family: 'NotoSans', weight: 'normal' });
     }
-    if (fs.existsSync(path.join(fontDir, 'BeVietnamPro-Bold.ttf'))) {
+    if (registerFont && fs.existsSync(path.join(fontDir, 'BeVietnamPro-Bold.ttf'))) {
         registerFont(path.join(fontDir, 'BeVietnamPro-Bold.ttf'), { family: 'BeVietnamPro', weight: 'bold' });
     }
-    if (fs.existsSync(path.join(fontDir, 'BeVietnamPro-SemiBold.ttf'))) {
+    if (registerFont && fs.existsSync(path.join(fontDir, 'BeVietnamPro-SemiBold.ttf'))) {
         registerFont(path.join(fontDir, 'BeVietnamPro-SemiBold.ttf'), { family: 'BeVietnamPro', weight: '600' });
     }
 } catch (e) {
-    console.log("BalanceCard: Using fallback fonts");
+    // Optional font loading fallback
 }
 
 const CURRENCY_SYMBOL = "$";
@@ -311,7 +314,7 @@ module.exports = {
         name: "balancec",
         aliases: ["bal", "wallet", "mybalance", "wcard"],
         version: "2.0.0",
-        author: "Neoaz ゐ",
+        author: "frnAlt",
         countDown: 10,
         role: 0,
         description: "Display your wallet balance with a professional card featuring your profile picture",

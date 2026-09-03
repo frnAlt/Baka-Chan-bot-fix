@@ -87,14 +87,27 @@ module.exports = async function (api, threadModel, userModel, dashBoardModel, gl
 
 						if (!packageAlready.includes(packageName)) {
 							packageAlready.push(packageName);
-							if (!existsSync(`${process.cwd()}/node_modules/${packageName}`)) {
+							let isResolvable = false;
+							try {
+								require.resolve(packageName);
+								isResolvable = true;
+							} catch (_) {}
+
+							const isLocalAlias = packageName.startsWith('@cass') ||
+								packageName.startsWith('@defs') ||
+								packageName.startsWith('@root') ||
+								packageName.startsWith('cassidy-') ||
+								packageName.startsWith('fca-') ||
+								packageName.startsWith('output-') ||
+								packageName.startsWith('@floppa');
+
+							if (!isLocalAlias && !isResolvable && !existsSync(`${process.cwd()}/node_modules/${packageName}`)) {
 								const wating = setInterval(() => {
-									// loading.info('PACKAGE', `${spinner[count % spinner.length]} Installing package ${packageName} for ${text} ${file}`);
 									loading.info('PACKAGE', `${spinner[count % spinner.length]} Installing package ${colors.yellow(packageName)} for ${text} ${colors.yellow(file)}`);
 									count++;
 								}, 80);
 								try {
-									await exec(`npm install ${packageName} --${pathCommand.endsWith('.dev.js') ? 'no-save' : 'save'}`);
+									await exec(`npm install ${packageName} --no-audit --no-fund --legacy-peer-deps --${pathCommand.endsWith('.dev.js') ? 'no-save' : 'save'}`);
 									clearInterval(wating);
 									process.stderr.write('\r\x1b[K');
 									console.log(`${colors.green('✔')} installed package ${packageName} successfully`);
@@ -103,7 +116,6 @@ module.exports = async function (api, threadModel, userModel, dashBoardModel, gl
 									clearInterval(wating);
 									process.stderr.write('\r\x1b[K');
 									console.log(`${colors.red('✖')} installed package ${packageName} failed`);
-									throw new Error(`Can't install package ${packageName}`);
 								}
 							}
 						}
@@ -114,23 +126,67 @@ module.exports = async function (api, threadModel, userModel, dashBoardModel, gl
 				global.temp.contentScripts[folderModules][file] = contentFile;
 
 
-				const command = require(pathCommand);
+				let command = require(pathCommand);
+				if (command && command.default && (command.default.config || command.default.meta || command.default.onStart || command.default.entry)) {
+					command = command.default;
+				}
 				command.location = pathCommand;
+
+				// Convert Floppa / Cassidy / Xavia commands to Goat format
+				if (command.meta && !command.config) {
+					command.config = {
+						name: command.meta.name,
+						version: command.meta.version || "1.0.0",
+						author: command.meta.author || command.meta.credits || "Floppa Engine",
+						cooldowns: command.meta.waitingTime || command.meta.cooldown || 5,
+						role: command.meta.role !== undefined ? command.meta.role : 0,
+						description: command.meta.description || "",
+						category: command.meta.category || "Utility",
+						guide: { en: command.meta.usage || "" },
+						aliases: command.meta.otherNames || command.meta.aliases || []
+					};
+				}
+
+				if (!command.onStart && (command.entry || command.onCall || command.run || command.execute)) {
+					const execFn = command.entry || command.onCall || command.run || command.execute;
+					command.onStart = async function ({ api, event, args, message, usersData, threadsData, globalData }) {
+						const input = event.input || {
+							body: event.body,
+							args,
+							senderID: event.senderID,
+							threadID: event.threadID,
+							messageID: event.messageID,
+							sid: event.senderID,
+							tid: event.threadID
+						};
+						const output = event.output || {
+							reply: (text) => message.reply(text),
+							send: (text) => message.send(text),
+							react: (emoji) => message.reaction(emoji)
+						};
+						return execFn({
+							api, event, args, message, input, output,
+							usersDB: usersData, threadsDB: threadsData, globalDB: globalData,
+							usersData, threadsData, globalData
+						});
+					};
+				}
+
 				const configCommand = command.config;
-				const commandName = configCommand.name;
-				// ——————————————— CHECK SYNTAXERROR ——————————————— //
 				if (!configCommand)
 					throw new Error(`config of ${text} undefined`);
-				if (!configCommand.category)
-					throw new Error(`category of ${text} undefined`);
+				configCommand.category = configCommand.category || "General";
+				const commandName = configCommand.name;
+				// ——————————————— CHECK SYNTAXERROR ——————————————— //
 				if (!commandName)
 					throw new Error(`name of ${text} undefined`);
 				if (!command.onStart)
 					throw new Error(`onStart of ${text} undefined`);
 				if (typeof command.onStart !== "function")
 					throw new Error(`onStart of ${text} must be a function`);
-				if (GoatBot[setMap].has(commandName))
-					throw new Error(`${text} "${commandName}" already exists with file "${removeHomeDir(GoatBot[setMap].get(commandName).location || "")}"`);
+				if (GoatBot[setMap].has(commandName)) {
+					continue;
+				}
 				const { onFirstChat, onChat, onLoad, onEvent, onAnyEvent } = command;
 				const { envGlobal, envConfig } = configCommand;
 				const { aliases } = configCommand;
@@ -141,9 +197,10 @@ module.exports = async function (api, threadModel, userModel, dashBoardModel, gl
 						throw new Error("The value of \"config.aliases\" must be array!");
 					for (const alias of aliases) {
 						if (aliases.filter(item => item == alias).length > 1)
-							throw new Error(`alias "${alias}" duplicate in ${text} "${commandName}" with file "${removeHomeDir(pathCommand)}"`);
-						if (GoatBot.aliases.has(alias))
-							throw new Error(`alias "${alias}" already exists in ${text} "${GoatBot.aliases.get(alias)}" with file "${removeHomeDir(GoatBot[setMap].get(GoatBot.aliases.get(alias))?.location || "")}"`);
+							continue;
+						if (GoatBot.aliases.has(alias)) {
+							continue;
+						}
 						validAliases.push(alias);
 					}
 					for (const alias of validAliases)

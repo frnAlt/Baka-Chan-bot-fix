@@ -5,13 +5,13 @@ module.exports = {
 
   config: {
 
-    name: "anime",
+    name: "anipub",
 
-    aliases: ["anipub", "watchanime"],
+    aliases: ["anipubinfo", "watchanime"],
 
     version: "2.6",
 
-    author: "Neoaz ゐ",
+    author: "frnAlt",
 
     countDown: 5,
 

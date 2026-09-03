@@ -15,9 +15,33 @@ const path = defaultRequire("path");
 const readline = defaultRequire("readline");
 const fs = defaultRequire("fs-extra");
 const toptp = defaultRequire("totp-generator");
-const { login } = defaultRequire("@lazyneoaz/metachat");
+let login;
+try {
+        const localFca = defaultRequire(path.join(process.cwd(), "fca"));
+        login = typeof localFca === "function" ? localFca : (localFca.login || localFca.default || localFca);
+} catch (e) {
+        try {
+                const metachat = defaultRequire("@lazyneoaz/metachat");
+                login = typeof metachat === "function" ? metachat : (metachat.login || metachat.default || metachat);
+        } catch (err) {
+                login = defaultRequire("./fca");
+        }
+}
+
+let parseUniversalCookies;
+try {
+        parseUniversalCookies = require(path.join(process.cwd(), "fca/src/utils/formatters/value/formatCookie")).parseUniversalCookies;
+} catch (_) {
+        parseUniversalCookies = null;
+}
+
 const qr = new (defaultRequire("qrcode-reader"));
-const Canvas = defaultRequire("canvas");
+let Canvas;
+try {
+        Canvas = defaultRequire("canvas");
+} catch (e) {
+        // Canvas is optional for reading 2FA QR images
+}
 const https = defaultRequire("https");
 
 async function getName(userID) {
@@ -173,6 +197,9 @@ async function input(prompt, isPassword = false) {
 }
 
 qr.readQrCode = async function (filePath) {
+        if (!Canvas) {
+                throw new Error("Canvas is not loaded. Cannot scan QR code image. Please provide 2FA secret as string.");
+        }
         const image = await Canvas.loadImage(filePath);
         const canvas = Canvas.createCanvas(image.width, image.height);
         const ctx = canvas.getContext("2d");
@@ -397,28 +424,34 @@ async function getAppStateFromEmail(spin = { _start: () => { }, _stop: () => { }
 function isNetScapeCookie(cookie) {
         if (typeof cookie !== 'string')
                 return false;
-        return /(.+)\t(1|TRUE|true)\t([\w\/.-]*)\t(1|TRUE|true)\t\d+\t([\w-]+)\t(.+)/i.test(cookie);
-        // match
+        return /(.+)\t(1|TRUE|true)\t([\w\/.-]*)\t(1|TRUE|true)\t\d+\t([\w-]+)\t(.+)/i.test(cookie) ||
+                cookie.includes("# Netscape") ||
+                cookie.includes("# HTTP Cookie") ||
+                cookie.includes("#HttpOnly_");
 }
 
 function netScapeToCookies(cookieData) {
         const cookies = [];
         const lines = cookieData.split('\n');
         lines.forEach((line) => {
-                if (line.trim().startsWith('#')) {
+                let trimmed = line.trim();
+                if (!trimmed) return;
+                if (trimmed.startsWith('#HttpOnly_')) {
+                        trimmed = trimmed.substring('#HttpOnly_'.length);
+                } else if (trimmed.startsWith('#')) {
                         return;
                 }
-                const fields = line.split('\t').map((field) => field.trim()).filter((field) => field.length > 0);
+                const fields = trimmed.split('\t').map((field) => field.trim()).filter((field) => field.length > 0);
                 if (fields.length < 7) {
                         return;
                 }
                 const cookie = {
                         key: fields[5],
                         value: fields[6],
-                        domain: fields[0],
+                        domain: fields[0].replace(/^\./, ""),
                         path: fields[2],
                         hostOnly: fields[1] === 'TRUE',
-                        creation: new Date(fields[4] * 1000).toISOString(),
+                        creation: new Date(Number(fields[4]) > 0 ? Number(fields[4]) * 1000 : Date.now()).toISOString(),
                         lastAccessed: new Date().toISOString()
                 };
                 cookies.push(cookie);
@@ -484,9 +517,18 @@ async function getAppStateToLogin(loginWithEmail) {
                         }
                         // is netscape cookie
                         else if (isNetScapeCookie(accountText)) {
-                                spin = createOraDots(getText('login', 'loginCookieNetscape'));
+                                spin = createOraDots(getText('login', 'loginCookieNetscape') || "Loading Netscape cookies...");
                                 spin._start();
-                                appState = netScapeToCookies(accountText);
+                                if (parseUniversalCookies) {
+                                        try {
+                                                appState = parseUniversalCookies(accountText);
+                                        } catch (_) {
+                                                appState = null;
+                                        }
+                                }
+                                if (!appState || appState.length === 0) {
+                                        appState = netScapeToCookies(accountText);
+                                }
                         }
                         else if (
                                 (splitAccountText.length == 2 || splitAccountText.length == 3) &&
@@ -501,39 +543,45 @@ async function getAppStateToLogin(loginWithEmail) {
                                 }
                                 writeFileSync(global.client.dirConfig, JSON.stringify(global.GoatBot.config, null, 2));
                         }
-                        // is json (cookies or appstate)
+                        // is json or universal cookies
                         else {
-                                try {
-                                        spin = createOraDots(getText('login', 'loginCookieArray'));
-                                        spin._start();
-                                        appState = JSON.parse(accountText);
+                                spin = createOraDots(getText('login', 'loginCookieArray') || "Loading cookies...");
+                                spin._start();
+                                if (parseUniversalCookies) {
+                                        try {
+                                                appState = parseUniversalCookies(accountText);
+                                        } catch (_) {
+                                                appState = null;
+                                        }
                                 }
-                                catch (err) {
-                                        const error = new Error(`${path.basename(dirAccount)} is invalid`);
-                                        error.name = "ACCOUNT_ERROR";
-                                        throw error;
+                                if (!appState || appState.length === 0) {
+                                        try {
+                                                appState = JSON.parse(accountText);
+                                        }
+                                        catch (err) {
+                                                appState = null;
+                                        }
                                 }
-                                if (appState.some(i => i.name))
-                                        appState = appState.map(i => {
-                                                i.key = i.name;
-                                                delete i.name;
-                                                return i;
-                                        });
-                                else if (!appState.some(i => i.key)) {
-                                        const error = new Error(`${path.basename(dirAccount)} is invalid`);
-                                        error.name = "ACCOUNT_ERROR";
-                                        throw error;
-                                }
-                                appState = appState
-                                        .map(item => ({
-                                                ...item,
-                                                domain: "facebook.com",
-                                                path: "/",
-                                                hostOnly: false,
-                                                creation: new Date().toISOString(),
+                        }
+
+                        if (Array.isArray(appState) && appState.length > 0) {
+                                appState = appState.map(i => {
+                                        if (i.name && !i.key) i.key = i.name;
+                                        return {
+                                                ...i,
+                                                domain: i.domain ? String(i.domain).replace(/^\./, "") : "facebook.com",
+                                                path: i.path || "/",
+                                                hostOnly: i.hostOnly ?? false,
+                                                creation: i.creation || new Date().toISOString(),
                                                 lastAccessed: new Date().toISOString()
-                                        }))
-                                        .filter(i => i.key && i.value && i.key != "x-referer");
+                                        };
+                                }).filter(i => i && i.key && i.value && i.key !== "x-referer");
+                        }
+
+                        if (!appState || appState.length === 0) {
+                                const error = new Error(`${path.basename(dirAccount)} is invalid or contains no usable cookies`);
+                                error.name = "ACCOUNT_ERROR";
+                                throw error;
                         }
                 }
         }
@@ -1045,15 +1093,14 @@ async function startBot(loginWithEmail) {
                         async function callBackListen(error, event) {
                                 if (error) {
                                         global.responseUptimeCurrent = responseUptimeError;
-                                        if (
-                                                error.error == "Not logged in" ||
-                                                error.error == "Not logged in." ||
-                                                error.error == "Connection refused: Server unavailable" ||
-                                                error.error?.includes("logout") ||
-                                                error.error?.includes("suspended") ||
-                                                error.error?.includes("checkpoint") ||
-                                                error.error?.includes("locked")
-                                        ) {
+                                        const errStr = (typeof error === 'string' ? error : (error?.error || error?.message || JSON.stringify(error) || "")).toLowerCase();
+                                        const isAuthError = errStr.includes("not logged in") ||
+                                                errStr.includes("connection refused") ||
+                                                errStr.includes("logout") ||
+                                                errStr.includes("suspended") ||
+                                                errStr.includes("checkpoint") ||
+                                                errStr.includes("locked");
+                                        if (isAuthError) {
                                                 log.err("ACCOUNT ISSUE", getText('login', 'notLoggedIn'), error);
                                                 global.responseUptimeCurrent = responseUptimeError;
                                                 global.statusAccountBot = 'can\'t login';
@@ -1147,12 +1194,21 @@ async function startBot(loginWithEmail) {
                                                 }
                                                 return;
                                         }
-                                        else if (error == "Connection closed." || error == "Connection closed by user.") /* by stopListening; */ {
+                                        else if (error == "Connection closed." || error == "Connection closed by user." || errStr.includes("connection closed")) /* by stopListening; */ {
                                                 return;
                                         }
                                         else {
                                                 await handlerWhenListenHasError({ api, threadModel, userModel, dashBoardModel, globalModel, threadsData, usersData, dashBoardData, globalData, error });
-                                                return log.err("LISTEN_MQTT", getText('login', 'callBackError'), error);
+                                                log.err("LISTEN_MQTT", getText('login', 'callBackError'), error);
+                                                log.info("LISTEN_MQTT", "Restarting MQTT listener in 3 seconds to ensure messages are received...");
+                                                setTimeout(() => {
+                                                        try {
+                                                                global.GoatBot.Listening = api.listenMqtt(createCallBackListen());
+                                                        } catch (recErr) {
+                                                                log.err("LISTEN_MQTT", "Failed to re-initialize listenMqtt:", recErr);
+                                                        }
+                                                }, 3000);
+                                                return;
                                         }
                                 }
                                 global.responseUptimeCurrent = responseUptimeSuccess;

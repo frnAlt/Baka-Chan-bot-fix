@@ -1,111 +1,105 @@
 const axios = require("axios");
-const fs = require("fs-extra");
-const path = require("path");
-
-const BASE_URL = "https://meta.nkx.lol";
-const MAX_ATTACHMENT_BYTES = 26214400;
-
-function formatError(res) {
-  if (res.status === 422 && Array.isArray(res.data?.detail)) {
-    return res.data.detail.map((d) => d.msg || d).join("; ");
-  }
-  if (res.status === 401) return "The API server rejected its own API key. Check the server's API_KEY config.";
-  if (res.status === 404) return "That project/image could not be found.";
-  if (res.status === 502) return "The Vibes provider failed to fulfill this request. Try again.";
-  if (res.status === 503) return "The API server's Vibes session is misconfigured (vibes.txt missing or invalid).";
-  return res.data?.message || res.data?.error || `Request failed (status ${res.status}).`;
-}
-
-function extractEditedImageUrl(data) {
-  const contentItem = data?.result?.contentItem;
-  return contentItem?.imageUrl || contentItem?.structuredOutput?.image || null;
-}
-
-function extractImageUrlFromEvent(event) {
-  const sources = [event.messageReply?.attachments, event.attachments];
-  for (const attachments of sources) {
-    if (!Array.isArray(attachments)) continue;
-    const photo = attachments.find((a) => a.type === "photo" || a.type === "sticker");
-    if (photo) {
-      const url = photo.url || photo.largePreviewUrl || photo.previewUrl;
-      if (url) return url;
-    }
-  }
-  return null;
-}
-
-async function downloadToBuffer(fileUrl) {
-  const res = await axios.get(fileUrl, {
-    responseType: "arraybuffer",
-    timeout: 60000,
-    maxContentLength: MAX_ATTACHMENT_BYTES,
-    maxBodyLength: MAX_ATTACHMENT_BYTES,
-    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
-  });
-  return Buffer.from(res.data);
-}
 
 module.exports = {
   config: {
     name: "edit",
-    aliases: ["editimg", "imgedit"],
-    version: "1.0",
-    author: "Neoaz 🐊",
-    countDown: 5,
+    aliases: ["filter", "imagedit", "ai-edit", "transform"],
+    version: "3.0.0",
+    author: "frnAlt",
+    countDown: 8,
     role: 0,
-    shortDescription: { en: "AI image-to-image editing" },
-    longDescription: { en: "Reply to an image with an edit instruction to transform it." },
-    category: "ai",
-    guide: { en: "(reply to an image) {pn} <edit prompt>" }
+    shortDescription: {
+      en: "AI Image Editor and Transformation"
+    },
+    longDescription: {
+      en: "Applies AI image edits and transformations to photos based on your text prompt using Toshiro AI Image Editor"
+    },
+    category: "ai-image",
+    guide: {
+      en: "{pn} <prompt> | Reply to an image\n\nExample:\n• Reply to an image with: {pn} make it anime\n• Reply to an image with: {pn} add sunglasses and cyberpunk neon lighting"
+    }
   },
 
-  onStart: async function ({ message, args, event, api }) {
-    const prompt = args.join(" ");
-    const imageUrl = extractImageUrlFromEvent(event);
+  onStart: async function ({ message, event, args, api, commandName }) {
+    let prompt = args.join(" ").trim();
+    let imgUrl = null;
 
-    if (!imageUrl) return message.reply("Reply to an image with this command to edit it.");
-    if (!prompt) return message.reply("Usage: (reply to an image) {pn} <edit prompt>");
+    // Extract image URL from reply, direct attachments, or url argument
+    if (event.messageReply?.attachments?.length > 0) {
+      const att = event.messageReply.attachments.find(a => a.type === "photo" || a.type === "image");
+      if (att && att.url) imgUrl = att.url;
+    } else if (event.attachments?.length > 0) {
+      const att = event.attachments.find(a => a.type === "photo" || a.type === "image");
+      if (att && att.url) imgUrl = att.url;
+    } else if (args.length > 0 && args[0].startsWith("http")) {
+      imgUrl = args[0];
+      prompt = args.slice(1).join(" ").trim();
+    }
 
-    api.setMessageReaction("⏳", event.messageID);
+    if (!imgUrl && !prompt) {
+      const prefix = global.GoatBot?.config?.prefix || "";
+      return message.reply(
+        `🖼️ Please reply to an image with an edit instruction/prompt.\n\n💡 Example: Reply to a photo with: ${prefix}${commandName} make it cyberpunk anime style`
+      );
+    }
+
+    if (api.setMessageReaction) {
+      api.setMessageReaction("✨", event.messageID, () => {}, true);
+    }
 
     try {
-      const res = await axios.post(`${BASE_URL}/v1/images/edit`, {
-        image_url: imageUrl,
-        prompt,
-        project_name: "Goatbot image edit"
-      }, {
-        timeout: 120000,
-        validateStatus: () => true
-      });
+      let finalStream = null;
+      const editPrompt = prompt || "enhance and make it aesthetic";
 
-      if (res.status >= 400) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply(formatError(res));
+      if (imgUrl) {
+        // 1. Primary: Toshiro AI Image Edit API
+        try {
+          const apiUrl = `https://toshiro-api-editz6t9.vercel.app/api/image/edit?url=${encodeURIComponent(imgUrl)}&prompt=${encodeURIComponent(editPrompt)}`;
+          finalStream = await global.utils.getStreamFromURL(apiUrl, "edit.jpg");
+        } catch (e) {
+          console.warn("Toshiro Image Edit failed, using fallback:", e.message);
+        }
+
+        // 2. Fallback: Pollinations img2img
+        if (!finalStream) {
+          const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(editPrompt)}?image=${encodeURIComponent(imgUrl)}&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+          finalStream = await global.utils.getStreamFromURL(fallbackUrl, "edit.png");
+        }
+      } else {
+        // Text-to-Image mode if no image provided
+        try {
+          const genUrl = `https://toshiro-api-editz6t9.vercel.app/api/ai/gptimg?prompt=${encodeURIComponent(prompt)}`;
+          const res = await axios.get(genUrl, { timeout: 60000 });
+          if (res.data && res.data.success && res.data.result?.image) {
+            finalStream = await global.utils.getStreamFromURL(res.data.result.image, "gen.jpg");
+          }
+        } catch (e) {
+          console.warn("GPTImg gen failed, using Pollinations:", e.message);
+          const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
+          finalStream = await global.utils.getStreamFromURL(pollinationsUrl, "gen.png");
+        }
       }
 
-      const editedUrl = extractEditedImageUrl(res.data);
-      if (!editedUrl) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("No image URL was found in the API's response.");
+      if (!finalStream) {
+        throw new Error("Could not process edited image stream.");
       }
 
-      const cacheDir = path.join(__dirname, "cache");
-      await fs.ensureDir(cacheDir);
-      const filePath = path.join(cacheDir, `edit_${Date.now()}.jpg`);
-      const buffer = await downloadToBuffer(editedUrl);
-      await fs.writeFile(filePath, buffer);
+      if (api.setMessageReaction) {
+        api.setMessageReaction("✅", event.messageID, () => {}, true);
+      }
 
       await message.reply({
-        body: "Here's your edited image.",
-        attachment: fs.createReadStream(filePath)
+        body: imgUrl
+          ? `✨ AI Image Edit Applied!\n📝 Prompt: "${editPrompt}"`
+          : `✅ Generated Image for: "${prompt}"`,
+        attachment: finalStream
       });
-
-      api.setMessageReaction("✅", event.messageID);
-      fs.remove(filePath).catch(() => {});
-    } catch (e) {
-      console.error("[EDIT COMMAND ERROR]:", e?.response?.data || e.message || e);
-      api.setMessageReaction("❌", event.messageID);
-      message.reply("An error occurred while editing the image.");
+    } catch (err) {
+      console.error("Edit command error:", err);
+      if (api.setMessageReaction) {
+        api.setMessageReaction("❌", event.messageID, () => {}, true);
+      }
+      return message.reply(`❌ Failed to edit/transform image: ${err.message || err}`);
     }
   }
 };

@@ -30,6 +30,8 @@ process.on('uncaughtException', (error) => {
         setTimeout(() => process.exit(1), 1000);
 });
 
+require("./func/moduleResolver.js");
+require("./func/definers.js");
 const axios = require("axios");
 const fs = require("fs-extra");
 const { execSync } = require('child_process');

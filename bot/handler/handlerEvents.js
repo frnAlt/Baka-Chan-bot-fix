@@ -278,23 +278,39 @@ module.exports = function (api, threadModel, userModel, dashBoardModel, globalMo
                 let threadData = global.db.allThreadData.find(t => t.threadID == threadID);
                 let userData = global.db.allUserData.find(u => u.userID == senderID);
 
-                if (!userData && !isNaN(senderID))
-                        userData = await usersData.create(senderID);
+                if (!userData && !isNaN(senderID)) {
+                        try {
+                                userData = await usersData.create(senderID);
+                        } catch (err) {
+                                userData = { userID: senderID, name: "Facebook User", data: {} };
+                        }
+                }
 
                 if (!threadData && !isNaN(threadID)) {
-                        if (global.temp.createThreadDataError.has(threadID))
-                                return;
-                        threadData = await threadsData.create(threadID);
-                        global.db.receivedTheFirstMessage[threadID] = true;
+                        try {
+                                threadData = await threadsData.create(threadID);
+                                global.db.receivedTheFirstMessage[threadID] = true;
+                        } catch (err) {
+                                threadData = { threadID, threadName: "Chat", adminIDs: [], members: [], settings: {} };
+                        }
                 }
-                else {
+                else if (threadData) {
                         if (
                                 autoRefreshThreadInfoFirstTime === true
                                 && !global.db.receivedTheFirstMessage[threadID]
                         ) {
                                 global.db.receivedTheFirstMessage[threadID] = true;
-                                await threadsData.refreshInfo(threadID);
+                                try {
+                                        await threadsData.refreshInfo(threadID);
+                                } catch (_) {}
                         }
+                }
+
+                if (!threadData) {
+                        threadData = { threadID, threadName: "Chat", adminIDs: [], members: [], settings: {} };
+                }
+                if (!userData) {
+                        userData = { userID: senderID, name: "Facebook User", data: {} };
                 }
 
                 const threadSettings = threadData?.settings || {};

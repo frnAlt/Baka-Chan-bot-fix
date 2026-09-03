@@ -1,4 +1,10 @@
-const { createCanvas, loadImage, registerFont } = require("canvas");
+let createCanvas, loadImage, registerFont;
+try {
+	const canvas = require("canvas");
+	createCanvas = canvas.createCanvas;
+	loadImage = canvas.loadImage;
+	registerFont = canvas.registerFont;
+} catch (e) {}
 const fs = require("fs-extra");
 const path = require("path");
 const crypto = require("crypto");
@@ -364,7 +370,7 @@ module.exports = {
         name: "bank",
         aliases: ["atm", "banking"],
         version: "2.0",
-        author: "Neoaz 🐦",
+        author: "frnAlt",
         countDown: 5,
         role: 0,
         description: "Complete banking system with ATM cards, transfers, savings accounts",

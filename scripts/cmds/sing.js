@@ -1,149 +1,149 @@
 const axios = require("axios");
-const fs = require("fs-extra");
-const path = require("path");
-
-const BASE_URL = "https://play.nkx.lol";
-const MAX_ATTACHMENT_BYTES = 26214400;
-const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-const REQUEST_HEADERS = { "User-Agent": BROWSER_UA };
-
-function resolveUrl(uri, baseUrl) {
-  try {
-    return new URL(uri, baseUrl).href;
-  } catch (e) {
-    return uri;
-  }
-}
-
-function parseMediaPlaylist(text, baseUrl) {
-  let initUrl = null;
-  const segments = [];
-
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    if (line.startsWith("#EXT-X-MAP:")) {
-      const m = line.match(/URI="([^"]+)"/);
-      if (m) initUrl = resolveUrl(m[1], baseUrl);
-    } else if (!line.startsWith("#")) {
-      segments.push(resolveUrl(line, baseUrl));
-    }
-  }
-
-  return { initUrl, segments };
-}
-async function fetchAndParsePlaylist(url) {
-  const res = await axios.get(url, { headers: REQUEST_HEADERS, timeout: 20000, responseType: "text" });
-  const text = typeof res.data === "string" ? res.data : String(res.data);
-
-  if (text.includes("#EXT-X-STREAM-INF")) {
-    const variantLine = text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .find((l) => l && !l.startsWith("#"));
-    if (!variantLine) throw new Error("Master playlist had no variant stream.");
-    return fetchAndParsePlaylist(resolveUrl(variantLine, url));
-  }
-
-  return parseMediaPlaylist(text, url);
-}
-
-async function downloadHlsAudio(streamUrl) {
-  const { initUrl, segments } = await fetchAndParsePlaylist(streamUrl);
-  if (segments.length === 0) throw new Error("No segments were found in the HLS playlist.");
-
-  const buffers = [];
-  let totalBytes = 0;
-
-  if (initUrl) {
-    const initRes = await axios.get(initUrl, { headers: REQUEST_HEADERS, responseType: "arraybuffer", timeout: 20000 });
-    buffers.push(Buffer.from(initRes.data));
-    totalBytes += initRes.data.byteLength;
-  }
-
-  for (const segUrl of segments) {
-    const segRes = await axios.get(segUrl, { headers: REQUEST_HEADERS, responseType: "arraybuffer", timeout: 20000 });
-    totalBytes += segRes.data.byteLength;
-    if (totalBytes > MAX_ATTACHMENT_BYTES) {
-      throw new Error("Audio stream exceeds Messenger's 25MB limit.");
-    }
-    buffers.push(Buffer.from(segRes.data));
-  }
-
-  return { buffer: Buffer.concat(buffers), isFragmentedMp4: !!initUrl };
-}
 
 module.exports = {
   config: {
     name: "sing",
     aliases: ["song", "music"],
-    version: "1.1",
-    author: "Neoaz 🐊",
+    version: "2.0.0",
+    author: "frnAlt",
     countDown: 5,
     role: 0,
-    shortDescription: { en: "Search and download a song" },
-    longDescription: { en: "Search and download the top matching song automatically." },
+    shortDescription: { en: "Search and download YouTube audio" },
+    longDescription: { en: "Search YouTube songs and download audio directly or via interactive reply selection" },
     category: "media",
-    guide: { en: "{pn} <song name>" }
+    guide: { en: "{pn} <song name or YouTube URL>" }
   },
 
-  onStart: async function ({ message, args, event, api }) {
-    const query = args.join(" ");
-    if (!query) return message.reply("Please provide a song name.");
+  onStart: async function ({ message, args, event, api, commandName }) {
+    const query = args.join(" ").trim();
+    if (!query) return message.reply("❌ Please provide a song name or YouTube link.");
 
-    api.setMessageReaction("⏳", event.messageID);
+    const isUrl = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\//i.test(query);
+
+    if (api.setMessageReaction) {
+      api.setMessageReaction("🎵", event.messageID, () => {}, true);
+    }
+
+    if (isUrl) {
+      try {
+        const apiUrl = `https://toshiro-api-editz6t9.vercel.app/api/downloader/yta2?url=${encodeURIComponent(query)}`;
+        const res = await axios.get(apiUrl, { timeout: 45000 });
+
+        if (!res.data || !res.data.success || !res.data.result) {
+          if (api.setMessageReaction) api.setMessageReaction("❌", event.messageID, () => {}, true);
+          return message.reply("❌ Could not download audio from this URL.");
+        }
+
+        const { title, download_url, preview, quality } = res.data.result;
+        const audioUrl = download_url || preview;
+        const audioStream = await global.utils.getStreamFromURL(audioUrl, "sing.mp3");
+
+        await message.reply({
+          body: `🎧 Title: ${title || "Audio"}\n🎼 Quality: ${quality || "128kbps"}`,
+          attachment: audioStream
+        });
+
+        if (api.setMessageReaction) api.setMessageReaction("✅", event.messageID, () => {}, true);
+      } catch (err) {
+        console.error("Sing URL download error:", err);
+        if (api.setMessageReaction) api.setMessageReaction("❌", event.messageID, () => {}, true);
+        return message.reply(`❌ Download error: ${err.message || err}`);
+      }
+    } else {
+      try {
+        const res = await axios.get(
+          `https://toshiro-api-editz6t9.vercel.app/api/downloader/yta2?search=${encodeURIComponent(query)}`,
+          { timeout: 30000 }
+        );
+
+        if (!res.data || !res.data.success || !res.data.results || res.data.results.length === 0) {
+          if (api.setMessageReaction) api.setMessageReaction("❌", event.messageID, () => {}, true);
+          return message.reply(`❌ No songs found for "${query}".`);
+        }
+
+        const results = res.data.results.slice(0, 6);
+        let msg = `🎶 Search results for "${query}":\n\n`;
+        const thumbnailPromises = [];
+
+        results.forEach((item, index) => {
+          msg += `${index + 1}. ${item.title}\n[⏱️ ${item.duration || "N/A"}]\n\n`;
+          if (item.thumbnail) {
+            thumbnailPromises.push(
+              global.utils.getStreamFromURL(item.thumbnail, `sing_thumb_${index}.jpg`).catch(() => null)
+            );
+          }
+        });
+
+        msg += `👉 Reply with a number (1-${results.length}) to download the audio track.`;
+
+        const thumbnails = (await Promise.all(thumbnailPromises)).filter(Boolean);
+
+        message.reply(
+          { body: msg.trim(), attachment: thumbnails },
+          (err, info) => {
+            if (err) return;
+            global.GoatBot.onReply.set(info.messageID, {
+              commandName,
+              author: event.senderID,
+              results
+            });
+          }
+        );
+      } catch (e) {
+        console.error("Sing search error:", e);
+        if (api.setMessageReaction) api.setMessageReaction("❌", event.messageID, () => {}, true);
+        message.reply("❌ Search error. Please try again later.");
+      }
+    }
+  },
+
+  onReply: async function ({ message, event, Reply, api }) {
+    if (event.senderID !== Reply.author) return;
+
+    const choice = parseInt(event.body);
+    if (isNaN(choice) || choice < 1 || choice > Reply.results.length) {
+      return message.reply(`❌ Invalid choice. Please choose a number between 1 and ${Reply.results.length}.`);
+    }
+
+    const selected = Reply.results[choice - 1];
+
+    if (api.unsendMessage && event.messageReply?.messageID) {
+      api.unsendMessage(event.messageReply.messageID);
+    }
+
+    if (api.setMessageReaction) {
+      api.setMessageReaction("⏳", event.messageID, () => {}, true);
+    }
 
     try {
-      const searchRes = await axios.get(`${BASE_URL}/search`, {
-        params: { q: query, limit: 1 },
-        timeout: 25000,
-        validateStatus: () => true
-      });
+      const res = await axios.get(
+        `https://toshiro-api-editz6t9.vercel.app/api/downloader/yta2?url=${encodeURIComponent(selected.url)}`,
+        { timeout: 60000 }
+      );
 
-      if (searchRes.status >= 400) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply(`Search failed (status ${searchRes.status}).`);
+      if (!res.data || !res.data.success || !res.data.result) {
+        if (api.setMessageReaction) api.setMessageReaction("❌", event.messageID, () => {}, true);
+        return message.reply("❌ Audio processing failed.");
       }
 
-      const results = searchRes.data?.results;
-      if (!Array.isArray(results) || results.length === 0) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("No songs found for your query.");
-      }
-
-      const selected = results[0];
-      const streamUrl = selected.audio_cdn_url;
-      const title = selected.title || query;
-
-      if (!streamUrl) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("No playable stream was found for that result.");
-      }
-
-      const { buffer, isFragmentedMp4 } = await downloadHlsAudio(streamUrl);
-      if (buffer.length === 0) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("The downloaded audio was empty.");
-      }
-
-      const cacheDir = path.join(__dirname, "cache");
-      await fs.ensureDir(cacheDir);
-      const ext = isFragmentedMp4 ? "m4a" : "aac";
-      const filePath = path.join(cacheDir, `${Date.now()}.${ext}`);
-      await fs.writeFile(filePath, buffer);
+      const { title, download_url, preview, quality } = res.data.result;
+      const audioUrl = download_url || preview;
+      const audioStream = await global.utils.getStreamFromURL(audioUrl, "sing.mp3");
 
       await message.reply({
-        body: title,
-        attachment: fs.createReadStream(filePath)
+        body: `🎧 ${title || selected.title}\n⏱️ Duration: ${selected.duration || "N/A"}\n🎼 Quality: ${quality || "128kbps"}`,
+        attachment: audioStream
       });
 
-      api.setMessageReaction("✅", event.messageID);
-      fs.remove(filePath).catch(() => {});
+      if (api.setMessageReaction) {
+        api.setMessageReaction("✅", event.messageID, () => {}, true);
+      }
     } catch (e) {
-      console.error("[SING COMMAND ERROR]:", e?.response?.data || e.message || e);
-      api.setMessageReaction("❌", event.messageID);
-      message.reply("An error occurred while processing the download.");
+      console.error("Sing download error:", e);
+      if (api.setMessageReaction) {
+        api.setMessageReaction("❌", event.messageID, () => {}, true);
+      }
+      message.reply("❌ Download error.");
     }
   }
 };

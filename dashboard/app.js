@@ -286,7 +286,7 @@ module.exports = async (api) => {
                         : `http://localhost:${PORT}`;
         await server.listen(PORT);
         utils.log.info("DASHBOARD", `Dashboard is running: ${dashBoardUrl}`);
-        if (config.serverUptime.socket.enable == true)
+        if (config.serverUptime?.enable === true && config.serverUptime?.socket?.enable === true && config.serverUptime?.socket?.verifyToken)
                 require("../bot/login/socketIO.js")(server);
 };
 

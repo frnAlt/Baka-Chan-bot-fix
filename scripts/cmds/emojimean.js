@@ -1,6 +1,7 @@
 const axios = require("axios");
 const cheerio = require("cheerio");
-const Canvas = require("canvas");
+let Canvas;
+try { Canvas = require("canvas"); } catch (e) { Canvas = null; }
 const fs = require("fs-extra");
 const langsSupported = [
 	'sq', 'ar', 'az', 'bn', 'bs', 'bg', 'my', 'zh-hans',
@@ -16,7 +17,7 @@ module.exports = {
 		name: "emojimean",
 		alias: ["em", "emojimeaning", "emojimean"],
 		version: "1.4",
-		author: "NTKhang",
+		author: "frnAlt",
 		countDown: 5,
 		role: 0,
 		description: {

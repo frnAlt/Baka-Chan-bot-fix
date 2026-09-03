@@ -191,20 +191,32 @@ module.exports = async function (databaseType, threadModel, api, fakeGraphql) {
                                                 message: `The first argument (threadID) must be a number, not a ${typeof threadID}`
                                         });
                                 }
-                                threadInfo = threadInfo || await api.getThreadInfo(threadID);
-                                const { threadName, userInfo, adminIDs } = threadInfo;
+                                try {
+                                        threadInfo = threadInfo || (api && typeof api.getThreadInfo === 'function' ? await api.getThreadInfo(threadID).catch(() => null) : null);
+                                } catch (e) {
+                                        threadInfo = null;
+                                }
+
+                                const threadName = threadInfo?.threadName || "Unknown";
+                                const adminIDs = threadInfo?.adminIDs || [];
+                                const userInfo = threadInfo?.userInfo || [];
+                                const nicknames = threadInfo?.nicknames || {};
+
                                 const newAdminsIDs = adminIDs.reduce(function (_, b) {
-                                        _.push(b.id);
+                                        if (b && b.id) _.push(b.id);
+                                        else if (typeof b === 'string' || typeof b === 'number') _.push(String(b));
                                         return _;
                                 }, []);
 
                                 const newMembers = userInfo.reduce(function (arr, user) {
-                                        const userID = user.id;
+                                        if (!user) return arr;
+                                        const userID = user.id || user.userID;
+                                        if (!userID) return arr;
                                         arr.push({
                                                 userID,
-                                                name: user.name,
+                                                name: user.name || "Facebook User",
                                                 gender: user.gender,
-                                                nickname: threadInfo.nicknames[userID] || null,
+                                                nickname: nicknames[userID] || null,
                                                 inGroup: true,
                                                 count: 0,
                                                 permissionConfigDashboard: false
@@ -215,11 +227,11 @@ module.exports = async function (databaseType, threadModel, api, fakeGraphql) {
                                 let threadData = {
                                         threadID,
                                         threadName,
-                                        threadThemeID: threadInfo.threadTheme?.id || null,
-                                        emoji: threadInfo.emoji,
+                                        threadThemeID: threadInfo?.threadTheme?.id || null,
+                                        emoji: threadInfo?.emoji || null,
                                         adminIDs: newAdminsIDs,
-                                        imageSrc: threadInfo.imageSrc,
-                                        approvalMode: threadInfo.approvalMode,
+                                        imageSrc: threadInfo?.imageSrc || null,
+                                        approvalMode: threadInfo?.approvalMode || null,
                                         members: newMembers,
                                         banned: {},
                                         settings: {
@@ -229,7 +241,7 @@ module.exports = async function (databaseType, threadModel, api, fakeGraphql) {
                                                 customCommand: true
                                         },
                                         data: {},
-                                        isGroup: threadInfo.threadType == 2
+                                        isGroup: threadInfo?.isGroup !== undefined ? threadInfo.isGroup : (threadInfo?.threadType == 2 || newMembers.length > 2)
                                 };
                                 threadData = await save(threadID, threadData, "create");
                                 resolve_(_.cloneDeep(threadData));
@@ -267,18 +279,29 @@ module.exports = async function (databaseType, threadModel, api, fakeGraphql) {
                                                 }));
                                         }
                                         const threadInfo = await get_(threadID);
-                                        newThreadInfo = newThreadInfo || await api.getThreadInfo(threadID);
-                                        const { userInfo, adminIDs, nicknames } = newThreadInfo;
-                                        let oldMembers = threadInfo.members;
+                                        try {
+                                                newThreadInfo = newThreadInfo || (api && typeof api.getThreadInfo === 'function' ? await api.getThreadInfo(threadID).catch(() => null) : null);
+                                        } catch (e) {
+                                                newThreadInfo = null;
+                                        }
+                                        if (!newThreadInfo) {
+                                                return resolve(_.cloneDeep(threadInfo));
+                                        }
+                                        const userInfo = newThreadInfo.userInfo || [];
+                                        const adminIDs = newThreadInfo.adminIDs || [];
+                                        const nicknames = newThreadInfo.nicknames || {};
+                                        let oldMembers = threadInfo?.members || [];
                                         const newMembers = [];
                                         for (const user of userInfo) {
-                                                const userID = user.id;
+                                                if (!user) continue;
+                                                const userID = user.id || user.userID;
+                                                if (!userID) continue;
                                                 const indexUser = _.findIndex(oldMembers, { userID });
                                                 const oldDataUser = oldMembers[indexUser] || {};
                                                 const data = {
                                                         userID,
                                                         ...oldDataUser,
-                                                        name: user.name,
+                                                        name: user.name || "Facebook User",
                                                         gender: user.gender,
                                                         nickname: nicknames[userID] || null,
                                                         inGroup: true,
@@ -293,16 +316,17 @@ module.exports = async function (databaseType, threadModel, api, fakeGraphql) {
                                                 return user;
                                         });
                                         const newAdminsIDs = adminIDs.reduce(function (acc, cur) {
-                                                acc.push(cur.id);
+                                                if (cur && cur.id) acc.push(cur.id);
+                                                else if (typeof cur === 'string' || typeof cur === 'number') acc.push(String(cur));
                                                 return acc;
                                         }, []);
                                         let threadData = {
                                                 ...threadInfo,
-                                                threadName: newThreadInfo.threadName,
-                                                threadThemeID: newThreadInfo.threadTheme?.id || null,
-                                                emoji: newThreadInfo.emoji,
-                                                adminIDs: newAdminsIDs,
-                                                imageSrc: newThreadInfo.imageSrc,
+                                                threadName: newThreadInfo.threadName || threadInfo.threadName,
+                                                threadThemeID: newThreadInfo.threadTheme?.id || threadInfo.threadThemeID || null,
+                                                emoji: newThreadInfo.emoji || threadInfo.emoji,
+                                                adminIDs: newAdminsIDs.length ? newAdminsIDs : (threadInfo.adminIDs || []),
+                                                imageSrc: newThreadInfo.imageSrc || threadInfo.imageSrc,
                                                 members: [
                                                         ...oldMembers,
                                                         ...newMembers

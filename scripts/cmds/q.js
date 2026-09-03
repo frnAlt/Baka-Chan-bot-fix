@@ -1,8 +1,8 @@
 module.exports = {
         config: {
-                name: "fakechat",
-                aliases: ["q"],
-                author: "Tawsif~",//Modified by NeoKEX(for fca-neokex)
+                name: "q",
+                aliases: ["quote", "fakequote"],
+                author: "frnAlt",//Modified by NeoKEX(for fca-neokex)
                 category: "fun",
                 version: "2.5 pro",
                 countDown: 5,

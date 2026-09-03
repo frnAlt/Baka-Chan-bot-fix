@@ -27,40 +27,42 @@ class MultiAccountManager {
 		const baseDir = process.cwd();
 		this.accounts = [];
 
+		const isValidAccount = (filePath) => {
+			try {
+				if (!fs.existsSync(filePath)) return false;
+				const stat = fs.statSync(filePath);
+				if (stat.size < 10) return false;
+				const content = fs.readFileSync(filePath, "utf8").trim();
+				return Boolean(content && content !== "[]" && content !== "{}");
+			} catch (e) {
+				return false;
+			}
+		};
+
 		// Always check account.txt first
 		const primaryAccount = path.join(baseDir, "account.txt");
-		if (fs.existsSync(primaryAccount)) {
+		if (isValidAccount(primaryAccount)) {
 			this.accounts.push(primaryAccount);
 		}
 
-		// Check for account2.txt, account3.txt, etc.
-		let index = 2;
-		while (true) {
+		// Check for account2.txt, account3.txt, etc. (up to account10.txt)
+		for (let index = 2; index <= 10; index++) {
 			const accountFile = path.join(baseDir, `account${index}.txt`);
-			if (fs.existsSync(accountFile)) {
+			if (isValidAccount(accountFile) && !this.accounts.includes(accountFile)) {
 				this.accounts.push(accountFile);
-				index++;
-			} else {
-				break;
 			}
 		}
 
 		// Also check account.json files
 		const primaryJson = path.join(baseDir, "account.json");
-		if (fs.existsSync(primaryJson) && !this.accounts.includes(primaryJson)) {
+		if (isValidAccount(primaryJson) && !this.accounts.includes(primaryJson)) {
 			this.accounts.push(primaryJson);
 		}
 
-		let jsonIndex = 2;
-		while (true) {
+		for (let jsonIndex = 2; jsonIndex <= 10; jsonIndex++) {
 			const accountFile = path.join(baseDir, `account${jsonIndex}.json`);
-			if (fs.existsSync(accountFile)) {
-				if (!this.accounts.includes(accountFile)) {
-					this.accounts.push(accountFile);
-				}
-				jsonIndex++;
-			} else {
-				break;
+			if (isValidAccount(accountFile) && !this.accounts.includes(accountFile)) {
+				this.accounts.push(accountFile);
 			}
 		}
 

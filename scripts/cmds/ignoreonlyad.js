@@ -1,4 +1,3 @@
-const ignoreList = global.GoatBot.config.adminOnly.ignoreCommand;
 const fs = require("fs-extra");
 
 module.exports = {
@@ -6,7 +5,7 @@ module.exports = {
 		name: "ignoreonlyad",
 		aliases: ["ignoreadonly", "ignoreonlyadmin", "ignoreadminonly"],
 		version: "1.2",
-		author: "NTKhang",
+		author: "frnAlt",
 		countDown: 5,
 		role: 2,
 		description: {
@@ -48,6 +47,9 @@ module.exports = {
 	},
 
 	onStart: async function ({ args, message, getLang }) {
+		if (!global.GoatBot.config.adminOnly) global.GoatBot.config.adminOnly = { ignoreCommand: [] };
+		if (!global.GoatBot.config.adminOnly.ignoreCommand) global.GoatBot.config.adminOnly.ignoreCommand = [];
+		const ignoreList = global.GoatBot.config.adminOnly.ignoreCommand;
 		switch (args[0]) {
 			case "add": {
 				if (!args[1])
